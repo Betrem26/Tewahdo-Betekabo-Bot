@@ -52,15 +52,15 @@ const MSG_LITERATURE_WELCOME =
   '✍️ የስነጽሑፍ ጥያቄዎን ከዚህ በታች ይጻፉ።';
 
 const MSG_OWNER_WELCOME =
-  '👑 እንኳን ወደ አስተዳዳሪ ፓናል ተቀበሉ!\n\n' +
+  '👑 እንኳን ወደ ተወካይ ፓናል ተቀበሉ!\n\n' +
   'ያሉት ትዕዛዞች፡\n' +
   '  /pending      — ያልተመለሱ ጥያቄዎች\n' +
   '  /stats        — ስታቲስቲክስ\n' +
   '  /broadcast    — ለሁሉም ተጠቃሚዎች መልዕክት ላክ\n' +
   '  /cancel       — እየተጻፈ ያለ መልስ ሰርዝ\n' +
-  '  /admins       — አስተዳዳሪዎች ዝርዝር\n' +
-  '  /addadmin     — አዲስ አስተዳዳሪ ጨምር\n' +
-  '  /removeadmin  — አስተዳዳሪ አስወግድ';
+  '  /admins       — ተወካዮች ዝርዝር\n' +
+  '  /addadmin     — አዲስ ተወካይ ጨምር\n' +
+  '  /removeadmin  — ተወካይ አስወግድ';
 
 // ── Utility ──────────────────────────────────────────────────────────────────
 function resolveOwnerChatId() {
@@ -252,7 +252,7 @@ bot.command('addadmin', async (ctx) => {
   }
   const roleLabels = { theology: 'ነገረ ሃይማኖት', literature: 'ትምሕርታዊ ስነጽሑፍ', both: 'ሁሉም ምድቦች' };
   storage.addAdmin({ username, role, addedBy: OWNER_CHAT_ID || ctx.from.id });
-  return ctx.reply(`✅ @${username} የ${roleLabels[role]} አስተዳዳሪ ሆነው ተመድበዋል።`);
+  return ctx.reply(`✅ @${username} የ${roleLabels[role]} ተወካይ ሆነው ተመድበዋል።`);
 });
 
 // ── /removeadmin ──────────────────────────────────────────────────────────────
@@ -262,22 +262,22 @@ bot.command('removeadmin', async (ctx) => {
   const username = arg.replace(/^@/, '').toLowerCase();
   if (!username) return ctx.reply('⚠️ አጠቃቀም: /removeadmin @username');
   const changes = storage.removeAdmin(username);
-  if (changes === 0) return ctx.reply(`⚠️ @${username} በአስተዳዳሪዎች ዝርዝር ውስጥ አልተገኘም።`);
-  return ctx.reply(`✅ @${username} ከአስተዳዳሪዎች ተወግደዋል።`);
+  if (changes === 0) return ctx.reply(`⚠️ @${username} በተወካዮች ዝርዝር ውስጥ አልተገኘም።`);
+  return ctx.reply(`✅ @${username} ከተወካዮች ተወግደዋል።`);
 });
 
 // ── /admins ───────────────────────────────────────────────────────────────────
 bot.command('admins', async (ctx) => {
   if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
   const admins = storage.getAdmins();
-  if (!admins.length) return ctx.reply('👥 ምንም አስተዳዳሪ አልተመደበም።');
+  if (!admins.length) return ctx.reply('👥 ምንም ተወካይ አልተመደበም።');
   const roleLabels = { theology: 'ነገረ ሃይማኖት', literature: 'ትምሕርታዊ ስነጽሑፍ', both: 'ሁሉም ምድቦች' };
   const lines = admins.map((a, i) => {
     const linked = a.chat_id ? '✅' : '⏳';
     const hint   = a.chat_id ? '(linked)' : '(not started bot yet)';
     return `${i + 1}. @${a.username} — ${roleLabels[a.role] || a.role} ${linked} ${hint}`;
   });
-  return ctx.reply(`👥 አስተዳዳሪዎች ዝርዝር፡ ${admins.length}\n\n${lines.join('\n')}`);
+  return ctx.reply(`👥 ተወካዮች ዝርዝር፡ ${admins.length}\n\n${lines.join('\n')}`);
 });
 
 // ── /help ─────────────────────────────────────────────────────────────────────
@@ -519,9 +519,9 @@ async function registerBotCommands() {
     { command: 'reply',        description: 'ለተወሰነ ጥያቄ መልስ ላክ' },
     { command: 'export',       description: 'ሁሉም ጥያቄዎች ፋይል ወደ ሰድ' },
     { command: 'help',         description: 'ትዕዛዞች ዝርዝር' },
-    { command: 'admins',       description: 'አስተዳዳሪዎች ዝርዝር' },
-    { command: 'addadmin',     description: 'አዲስ አስተዳዳሪ ጨምር' },
-    { command: 'removeadmin',  description: 'አስተዳዳሪ አስወግድ' },
+    { command: 'admins',       description: 'ተወካዮች ዝርዝር' },
+    { command: 'addadmin',     description: 'አዲስ ተወካይ ጨምር' },
+    { command: 'removeadmin',  description: 'ተወካይ አስወግድ' },
   ];
   const ownerIds = new Set();
   if (OWNER_CHAT_ID) ownerIds.add(OWNER_CHAT_ID);
