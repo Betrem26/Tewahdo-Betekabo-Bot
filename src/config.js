@@ -24,4 +24,15 @@ function isOwner(ctx) {
   return false;
 }
 
-module.exports = { OWNER_USERNAME, OWNER_CHAT_ID, isOwner, normalizeUsername };
+function isAdminForRole(ctx, role, db) {
+  if (isOwner(ctx)) return true;
+  if (!ctx || !ctx.from) return false;
+  const username = normalizeUsername(ctx.from.username);
+  const chatId = ctx.from.id;
+  const admins = db.prepare(
+    `SELECT * FROM admins WHERE (role = ? OR role = 'both') AND (username = ? OR chat_id = ?)`
+  ).all(role, username || '', chatId);
+  return admins.length > 0;
+}
+
+module.exports = { OWNER_USERNAME, OWNER_CHAT_ID, isOwner, normalizeUsername, isAdminForRole };

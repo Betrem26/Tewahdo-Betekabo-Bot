@@ -154,3 +154,62 @@ test('getUniqueUserChatIds returns from users table (registered but no question)
   const ids = storage.getUniqueUserChatIds();
   assert.ok(ids.includes(8888), 'should include user who registered but never asked a question');
 });
+
+test('addAdmin inserts and getAdmins returns it', () => {
+  storage.addAdmin({ username: 'admin1', role: 'theology', addedBy: 1 });
+  const admins = storage.getAdmins();
+  assert.ok(admins.some(a => a.username === 'admin1' && a.role === 'theology'));
+});
+
+test('removeAdmin removes correctly', () => {
+  storage.addAdmin({ username: 'admin_to_remove', role: 'literature', addedBy: 1 });
+  const changes = storage.removeAdmin('admin_to_remove');
+  assert.equal(changes, 1);
+  const admins = storage.getAdmins();
+  assert.ok(!admins.some(a => a.username === 'admin_to_remove'));
+});
+
+test('getAdminsByRole returns correct role matches including both', () => {
+  storage.addAdmin({ username: 'admin_both', role: 'both', addedBy: 1 });
+  storage.addAdmin({ username: 'admin_theo', role: 'theology', addedBy: 1 });
+  const results = storage.getAdminsByRole('theology');
+  assert.ok(results.some(a => a.username === 'admin_both'));
+  assert.ok(results.some(a => a.username === 'admin_theo'));
+  const litResults = storage.getAdminsByRole('literature');
+  assert.ok(litResults.some(a => a.username === 'admin_both'));
+  assert.ok(!litResults.some(a => a.username === 'admin_theo'));
+});
+
+test('getAdminChatIds returns only non-null chat_ids', () => {
+  storage.addAdmin({ username: 'admin_linked', role: 'literature', addedBy: 1 });
+  storage.updateAdminChatId('admin_linked', 55555);
+  storage.addAdmin({ username: 'admin_unlinked', role: 'literature', addedBy: 1 });
+  const ids = storage.getAdminChatIds('literature');
+  assert.ok(ids.includes(55555));
+  assert.ok(typeof ids[0] === 'number');
+});
+
+test('updateAdminChatId sets chat_id on matching username', () => {
+  storage.addAdmin({ username: 'admin_chatid', role: 'both', addedBy: 1 });
+  storage.updateAdminChatId('admin_chatid', 99999);
+  const admins = storage.getAdmins();
+  const row = admins.find(a => a.username === 'admin_chatid');
+  assert.ok(row);
+  assert.equal(row.chat_id, 99999);
+});
+
+test('getPendingQuestionsByCategory filters correctly', () => {
+  storage.recordQuestion({
+    userChatId: 5001, userId: 6001, username: 'cattest', firstName: 'Cat', lastName: 'Test',
+    questionText: 'ሥነ ጽሑፍ ጥያቄ ምሳሌ ነው?', ownerMessageId: null, category: 'literature'
+  });
+  storage.recordQuestion({
+    userChatId: 5002, userId: 6002, username: 'cattest2', firstName: 'Cat2', lastName: 'Test',
+    questionText: 'ነገረ ሃይማኖት ጥያቄ ምሳሌ ነው?', ownerMessageId: null, category: 'theology'
+  });
+  const litPending = storage.getPendingQuestionsByCategory('literature');
+  assert.ok(litPending.every(q => q.category === 'literature'));
+  assert.ok(litPending.some(q => q.question_text === 'ሥነ ጽሑፍ ጥያቄ ምሳሌ ነው?'));
+  const theoPending = storage.getPendingQuestionsByCategory('theology');
+  assert.ok(theoPending.every(q => q.category === 'theology'));
+});

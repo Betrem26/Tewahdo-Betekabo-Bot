@@ -44,13 +44,32 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admins (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER,
+    username   TEXT NOT NULL UNIQUE,
+    role       TEXT NOT NULL CHECK(role IN ('theology','literature','both')),
+    added_by   INTEGER NOT NULL,
+    added_at   TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 // Migrate: add category column to databases created before this column existed
 try { db.exec(`ALTER TABLE questions ADD COLUMN category TEXT NOT NULL DEFAULT 'theology'`); } catch (_) {}
 
 // Migrate: add current_category column to users table (feature #4)
 try { db.exec('ALTER TABLE users ADD COLUMN current_category TEXT'); } catch (_) {}
 
+// Migrate: add owner_message_ids column to questions table
+try { db.exec("ALTER TABLE questions ADD COLUMN owner_message_ids TEXT"); } catch (_) {}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+function normalizeUsername(value) {
+  if (!value) return '';
+  return String(value).replace(/^@/, '').trim().toLowerCase();
+}
 
 function upsertUser({ userId, chatId, username, firstName, lastName }) {
   db.prepare(`
@@ -69,6 +88,9 @@ function upsertUser({ userId, chatId, username, firstName, lastName }) {
     firstName:  firstName  || null,
     lastName:   lastName   || null,
   });
+  if (username) {
+    updateAdminChatId(normalizeUsername(username), chatId);
+  }
 }
 
 function recordQuestion({ userChatId, userId, username, firstName, lastName, questionText, ownerMessageId, category }) {
@@ -95,11 +117,21 @@ function updateOwnerMessageId({ questionId, ownerMessageId }) {
     .run({ questionId, ownerMessageId });
 }
 
+function updateOwnerMessageIds({ questionId, ownerMessageId, ownerMessageIds }) {
+  db.prepare(`UPDATE questions SET owner_message_id = @ownerMessageId, owner_message_ids = @ownerMessageIds WHERE id = @questionId`)
+    .run({ questionId, ownerMessageId, ownerMessageIds });
+}
+
 function updateQuestionStatus({ ownerMessageId, status }) {
   db.prepare(`
     UPDATE questions SET status = @status, answered_at = CURRENT_TIMESTAMP
     WHERE owner_message_id = @ownerMessageId
   `).run({ status, ownerMessageId });
+}
+
+function updateQuestionStatusById({ questionId, status }) {
+  db.prepare(`UPDATE questions SET status = @status, answered_at = CURRENT_TIMESTAMP WHERE id = @questionId`)
+    .run({ questionId, status });
 }
 
 function getQuestionByOwnerMessageId(ownerMessageId) {
@@ -114,6 +146,10 @@ function getPendingQuestions() {
   return db.prepare(`SELECT * FROM questions WHERE status = 'pending' ORDER BY created_at ASC`).all();
 }
 
+function getPendingQuestionsByCategory(category) {
+  return db.prepare(`SELECT * FROM questions WHERE status = 'pending' AND category = ? ORDER BY created_at ASC`).all(category);
+}
+
 function getStats() {
   const total             = db.prepare(`SELECT COUNT(*) AS c FROM questions`).get().c;
   const pending           = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE status = 'pending'`).get().c;
@@ -121,6 +157,16 @@ function getStats() {
   const answered_assembly = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE status = 'answered_assembly'`).get().c;
   const answered_sunday   = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE status = 'answered_sunday'`).get().c;
   const answered_tuesday  = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE status = 'answered_tuesday'`).get().c;
+  return { total, pending, answered_bot, answered_assembly, answered_sunday, answered_tuesday };
+}
+
+function getStatsByCategory(category) {
+  const total             = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE category = ?`).get(category).c;
+  const pending           = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE category = ? AND status = 'pending'`).get(category).c;
+  const answered_bot      = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE category = ? AND status = 'answered_bot'`).get(category).c;
+  const answered_assembly = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE category = ? AND status = 'answered_assembly'`).get(category).c;
+  const answered_sunday   = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE category = ? AND status = 'answered_sunday'`).get(category).c;
+  const answered_tuesday  = db.prepare(`SELECT COUNT(*) AS c FROM questions WHERE category = ? AND status = 'answered_tuesday'`).get(category).c;
   return { total, pending, answered_bot, answered_assembly, answered_sunday, answered_tuesday };
 }
 
@@ -143,18 +189,63 @@ function findDuplicatePendingQuestion(userId, questionText) {
   return db.prepare(`SELECT * FROM questions WHERE user_id = ? AND question_text = ? AND status = 'pending' LIMIT 1`).get(userId, questionText) || null;
 }
 
+// ── Admin management ───────────────────────────────────────────────────────
+
+function addAdmin({ username, role, addedBy }) {
+  const normalised = normalizeUsername(username);
+  db.prepare(`
+    INSERT INTO admins (username, role, added_by)
+    VALUES (?, ?, ?)
+    ON CONFLICT(username) DO UPDATE SET role = excluded.role, added_by = excluded.added_by
+  `).run(normalised, role, addedBy);
+  return db.prepare(`SELECT * FROM admins WHERE username = ?`).get(normalised);
+}
+
+function removeAdmin(username) {
+  const normalised = normalizeUsername(username);
+  const result = db.prepare(`DELETE FROM admins WHERE username = ?`).run(normalised);
+  return result.changes;
+}
+
+function getAdmins() {
+  return db.prepare(`SELECT * FROM admins ORDER BY role ASC, added_at ASC`).all();
+}
+
+function getAdminsByRole(role) {
+  return db.prepare(`SELECT * FROM admins WHERE role = ? OR role = 'both'`).all(role);
+}
+
+function getAdminChatIds(role) {
+  return db.prepare(`SELECT chat_id FROM admins WHERE (role = ? OR role = 'both') AND chat_id IS NOT NULL`).all(role).map(r => Number(r.chat_id));
+}
+
+function updateAdminChatId(username, chatId) {
+  const normalised = normalizeUsername(username);
+  db.prepare(`UPDATE admins SET chat_id = ? WHERE username = ?`).run(chatId, normalised);
+}
+
 module.exports = {
   db,
   upsertUser,
   recordQuestion,
   updateOwnerMessageId,
+  updateOwnerMessageIds,
   updateQuestionStatus,
+  updateQuestionStatusById,
   getQuestionByOwnerMessageId,
   getQuestionById,
   getPendingQuestions,
+  getPendingQuestionsByCategory,
   getStats,
+  getStatsByCategory,
   getUniqueUserChatIds,
   setUserCategory,
   getUserCategory,
   findDuplicatePendingQuestion,
+  addAdmin,
+  removeAdmin,
+  getAdmins,
+  getAdminsByRole,
+  getAdminChatIds,
+  updateAdminChatId,
 };
