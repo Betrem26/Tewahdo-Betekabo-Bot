@@ -116,3 +116,41 @@ test('isOwner returns true for OWNER_CHAT_ID when set', () => {
   const fakeCtx = { from: { id: OWNER_CHAT_ID, username: 'anyuser' }, chat: { id: OWNER_CHAT_ID } };
   assert.equal(isOwner(fakeCtx), true);
 });
+
+test('findDuplicatePendingQuestion returns existing row for duplicate', () => {
+  storage.upsertUser({ userId: 2001, chatId: 3001, username: 'dupuser', firstName: 'Dup', lastName: 'User' });
+  storage.recordQuestion({
+    userChatId: 3001, userId: 2001, username: 'dupuser',
+    firstName: 'Dup', lastName: 'User',
+    questionText: 'ተባዕታይ ጥያቄ ምንድን ነው?', ownerMessageId: null, category: 'theology'
+  });
+  const row = storage.findDuplicatePendingQuestion(2001, 'ተባዕታይ ጥያቄ ምንድን ነው?');
+  assert.ok(row, 'should find the duplicate row');
+  assert.equal(row.question_text, 'ተባዕታይ ጥያቄ ምንድን ነው?');
+});
+
+test('findDuplicatePendingQuestion returns null for non-duplicate', () => {
+  const row = storage.findDuplicatePendingQuestion(2001, 'ፍጹም ያልተደጋገመ ጥያቄ');
+  assert.equal(row, null);
+});
+
+test('getStats includes answered_tuesday', () => {
+  const stats = storage.getStats();
+  assert.ok('answered_tuesday' in stats, 'getStats should include answered_tuesday');
+  assert.ok(typeof stats.answered_tuesday === 'number');
+});
+
+test('setUserCategory and getUserCategory roundtrip', () => {
+  storage.upsertUser({ userId: 3001, chatId: 4001, username: 'catuser', firstName: 'Cat', lastName: 'User' });
+  storage.setUserCategory(4001, 'literature');
+  const cat = storage.getUserCategory(4001);
+  assert.equal(cat, 'literature');
+  storage.setUserCategory(4001, 'theology');
+  assert.equal(storage.getUserCategory(4001), 'theology');
+});
+
+test('getUniqueUserChatIds returns from users table (registered but no question)', () => {
+  storage.upsertUser({ userId: 9999, chatId: 8888, username: 'newuser', firstName: 'New', lastName: 'User' });
+  const ids = storage.getUniqueUserChatIds();
+  assert.ok(ids.includes(8888), 'should include user who registered but never asked a question');
+});
