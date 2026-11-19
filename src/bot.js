@@ -8,8 +8,6 @@ const { isOwner, OWNER_USERNAME, OWNER_CHAT_ID } = require('./config');
 // ── Startup guard ────────────────────────────────────────────────────────────
 if (!process.env.BOT_TOKEN) throw new Error('BOT_TOKEN is missing in .env');
 
-console.log('Config — OWNER_CHAT_ID:', OWNER_CHAT_ID, '| OWNER_USERNAME:', OWNER_USERNAME);
-
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // ── In-memory state ──────────────────────────────────────────────────────────
