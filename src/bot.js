@@ -228,7 +228,7 @@ bot.command('broadcast', async (ctx) => {
   if (!body) return ctx.reply('⚠️ አጠቃቀም: /broadcast <መልዕክት>\nምሳሌ: /broadcast ዛሬ ጉባኤ አለ!');
   const chatIds = storage.getUniqueUserChatIds();
   if (!chatIds.length) return ctx.reply('📭 ምንም ተጠቃሚ የለም።');
-  const msgText = `📢 ከተዋሕዶ በተዓቅቦ ቡድን ማስታወቂያ፡\n\n${body}`;
+  const msgText = `📢 ከተዋሕዶ በተዓቅቦ ተጠሪ ማስታወቂያ፡\n\n${body}`;
   let sent = 0, failed = 0;
   for (const chatId of chatIds) {
     try { await ctx.telegram.sendMessage(chatId, msgText); sent++; }
@@ -426,7 +426,7 @@ bot.on('text', async (ctx) => {
       return ctx.reply('⚠️ ጥያቄው አልተገኘም።');
     }
     try {
-      await ctx.telegram.sendMessage(question.user_chat_id, '📩 ከተዋሕዶ በተዓቅቦ ቡድን የተላከ መልስ፡\n\n' + text);
+      await ctx.telegram.sendMessage(question.user_chat_id, '📩 ከተዋሕዶ በተዓቅቦ ተጠሪ የተላከ መልስ፡\n\n' + text);
       storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_bot' });
       ownerReplyState.delete(ctx.chat.id);
       return ctx.reply('✅ መልስዎ ለተጠቃሚው ተልኳል።');
@@ -557,7 +557,7 @@ bot.on('text', async (ctx) => {
       });
       return ctx.reply(
         '✝️ ጥያቄ ስለላኩ በእግዚአብሔር ስም እናመሰግናለን። 🙏\n\n' +
-        'ጥያቄዎ ለነገረ ሃይማኖት ቡድኑ ደርሷል።\n\n' +
+        'ጥያቄዎ ለነገረ ሃይማኖት ተጠሪ ደርሷል።\n\n' +
         '📢 ምላሹ የሚሰጠው፡\n' +
         '  • በግቢ ጉባኤው በሚዘጋጅ ልዩ መርሐ ግብር ወይም\n' +
         '  • ዘወትር እሑድ 4፡00 በሚካሄደው\n' +
@@ -590,7 +590,7 @@ bot.on('text', async (ctx) => {
       });
       return ctx.reply(
         '✝️ ጥያቄ ስለላኩ በእግዚአብሔር ስም እናመሰግናለን። 🙏\n\n' +
-        'ጥያቄዎ ለትምህርታዊ ስነ ጽሑፍ ቡድኑ ደርሷል።\n\n' +
+        'ጥያቄዎ ለትምህርታዊ ስነ ጽሑፍ ተጠሪ ደርሷል።\n\n' +
         '📅 ምላሹ የሚሰጠው ዘወትር ማክሰኞ 11 ሰዓት\n' +
         '    በሚካሄደው የትምህርት ክፍል\n' +
         '    ትምህርታዊ ስነ ጽሑፍ መርሐ ግብር ላይ ይሆናል።\n\n' +
