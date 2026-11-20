@@ -64,8 +64,12 @@ try { db.exec('ALTER TABLE users ADD COLUMN current_category TEXT'); } catch (_)
 // Migrate: add owner_message_ids column to questions table
 try { db.exec("ALTER TABLE questions ADD COLUMN owner_message_ids TEXT"); } catch (_) {}
 
-// Migrate: add type column to admins table
-try { db.exec(`ALTER TABLE admins ADD COLUMN type TEXT NOT NULL DEFAULT 'rep' CHECK(type IN ('admin','rep'))`); } catch (_) {}
+// Migrate: add type column to admins table — existing rows were admins, backfill to 'admin'
+try {
+  db.exec(`ALTER TABLE admins ADD COLUMN type TEXT NOT NULL DEFAULT 'rep' CHECK(type IN ('admin','rep'))`);
+  // Backfill: any row that existed before this column was added was an old-style admin
+  db.exec(`UPDATE admins SET type = 'admin' WHERE type = 'rep'`);
+} catch (_) {}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -195,27 +199,16 @@ function findDuplicatePendingQuestion(userId, questionText) {
 // ── Admin / Rep management ─────────────────────────────────────────────────
 
 /**
- * addAdmin — dual signature for backward compat:
- *   addAdmin({ username, role, addedBy })  → old behavior: upsert with given role, type='rep'
- *   addAdmin({ username, addedBy })        → new behavior: type='admin', role='both'
+ * addAdmin — always creates type='admin', role='both'.
+ * The old dual-signature (with role arg) is removed — use addRep() for reps.
  */
-function addAdmin({ username, role, addedBy }) {
+function addAdmin({ username, addedBy }) {
   const normalised = normalizeUsername(username);
-  if (role !== undefined && role !== null) {
-    // Old behavior: upsert with the provided role; type defaults to 'rep'
-    db.prepare(`
-      INSERT INTO admins (username, role, added_by, type)
-      VALUES (?, ?, ?, 'rep')
-      ON CONFLICT(username) DO UPDATE SET role = excluded.role, added_by = excluded.added_by
-    `).run(normalised, role, addedBy);
-  } else {
-    // New behavior: type='admin', role='both'
-    db.prepare(`
-      INSERT OR IGNORE INTO admins (username, role, added_by, type)
-      VALUES (?, 'both', ?, 'admin')
-    `).run(normalised, addedBy);
-  }
-  return db.prepare(`SELECT * FROM admins WHERE username = ?`).get(normalised);
+  db.prepare(`
+    INSERT OR IGNORE INTO admins (username, role, added_by, type)
+    VALUES (?, 'both', ?, 'admin')
+  `).run(normalised, addedBy);
+  return db.prepare(`SELECT * FROM admins WHERE username = ? AND type = 'admin'`).get(normalised);
 }
 
 /**
@@ -232,15 +225,12 @@ function addRep({ username, role, addedBy }) {
 }
 
 /**
- * removeAdmin — deletes type='admin' rows; falls back to any row for backward compat.
+ * removeAdmin — deletes type='admin' rows only. Never touches reps.
  */
 function removeAdmin(username) {
   const normalised = normalizeUsername(username);
   const result = db.prepare(`DELETE FROM admins WHERE type = 'admin' AND username = ?`).run(normalised);
-  if (result.changes > 0) return result.changes;
-  // Fallback: old data without type column
-  const fallback = db.prepare(`DELETE FROM admins WHERE username = ?`).run(normalised);
-  return fallback.changes;
+  return result.changes;
 }
 
 /**

@@ -156,23 +156,22 @@ test('getUniqueUserChatIds returns from users table (registered but no question)
 });
 
 test('addAdmin inserts and getAdmins returns it', () => {
-  storage.addAdmin({ username: 'admin1', role: 'theology', addedBy: 1 });
-  // addAdmin with role provided uses old behavior → type='rep'; check via getAllStaff
+  storage.addRep({ username: 'admin1', role: 'theology', addedBy: 1 });
   const staff = storage.getAllStaff();
   assert.ok(staff.some(a => a.username === 'admin1' && a.role === 'theology'));
 });
 
 test('removeAdmin removes correctly', () => {
-  storage.addAdmin({ username: 'admin_to_remove', role: 'literature', addedBy: 1 });
-  const changes = storage.removeAdmin('admin_to_remove');
+  storage.addRep({ username: 'admin_to_remove', role: 'literature', addedBy: 1 });
+  const changes = storage.removeRep('admin_to_remove');
   assert.ok(changes >= 1);
   const staff = storage.getAllStaff();
   assert.ok(!staff.some(a => a.username === 'admin_to_remove'));
 });
 
 test('getAdminsByRole returns correct role matches including both', () => {
-  storage.addAdmin({ username: 'admin_both', role: 'both', addedBy: 1 });
-  storage.addAdmin({ username: 'admin_theo', role: 'theology', addedBy: 1 });
+  storage.addRep({ username: 'admin_both', role: 'both', addedBy: 1 });
+  storage.addRep({ username: 'admin_theo', role: 'theology', addedBy: 1 });
   const results = storage.getAdminsByRole('theology');
   assert.ok(results.some(a => a.username === 'admin_both'));
   assert.ok(results.some(a => a.username === 'admin_theo'));
