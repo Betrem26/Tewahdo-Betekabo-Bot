@@ -64,6 +64,9 @@ try { db.exec('ALTER TABLE users ADD COLUMN current_category TEXT'); } catch (_)
 // Migrate: add owner_message_ids column to questions table
 try { db.exec("ALTER TABLE questions ADD COLUMN owner_message_ids TEXT"); } catch (_) {}
 
+// Migrate: add type column to admins table
+try { db.exec(`ALTER TABLE admins ADD COLUMN type TEXT NOT NULL DEFAULT 'rep' CHECK(type IN ('admin','rep'))`); } catch (_) {}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function normalizeUsername(value) {
@@ -189,34 +192,116 @@ function findDuplicatePendingQuestion(userId, questionText) {
   return db.prepare(`SELECT * FROM questions WHERE user_id = ? AND question_text = ? AND status = 'pending' LIMIT 1`).get(userId, questionText) || null;
 }
 
-// ── Admin management ───────────────────────────────────────────────────────
+// ── Admin / Rep management ─────────────────────────────────────────────────
 
+/**
+ * addAdmin — dual signature for backward compat:
+ *   addAdmin({ username, role, addedBy })  → old behavior: upsert with given role, type='rep'
+ *   addAdmin({ username, addedBy })        → new behavior: type='admin', role='both'
+ */
 function addAdmin({ username, role, addedBy }) {
   const normalised = normalizeUsername(username);
+  if (role !== undefined && role !== null) {
+    // Old behavior: upsert with the provided role; type defaults to 'rep'
+    db.prepare(`
+      INSERT INTO admins (username, role, added_by, type)
+      VALUES (?, ?, ?, 'rep')
+      ON CONFLICT(username) DO UPDATE SET role = excluded.role, added_by = excluded.added_by
+    `).run(normalised, role, addedBy);
+  } else {
+    // New behavior: type='admin', role='both'
+    db.prepare(`
+      INSERT OR IGNORE INTO admins (username, role, added_by, type)
+      VALUES (?, 'both', ?, 'admin')
+    `).run(normalised, addedBy);
+  }
+  return db.prepare(`SELECT * FROM admins WHERE username = ?`).get(normalised);
+}
+
+/**
+ * addRep — inserts a rep (type='rep') with a specific role ('theology' or 'literature').
+ * Uses INSERT OR IGNORE so duplicate username+role combinations are silently skipped.
+ */
+function addRep({ username, role, addedBy }) {
+  const normalised = normalizeUsername(username);
   db.prepare(`
-    INSERT INTO admins (username, role, added_by)
-    VALUES (?, ?, ?)
-    ON CONFLICT(username) DO UPDATE SET role = excluded.role, added_by = excluded.added_by
+    INSERT OR IGNORE INTO admins (username, role, added_by, type)
+    VALUES (?, ?, ?, 'rep')
   `).run(normalised, role, addedBy);
   return db.prepare(`SELECT * FROM admins WHERE username = ?`).get(normalised);
 }
 
+/**
+ * removeAdmin — deletes type='admin' rows; falls back to any row for backward compat.
+ */
 function removeAdmin(username) {
   const normalised = normalizeUsername(username);
-  const result = db.prepare(`DELETE FROM admins WHERE username = ?`).run(normalised);
+  const result = db.prepare(`DELETE FROM admins WHERE type = 'admin' AND username = ?`).run(normalised);
+  if (result.changes > 0) return result.changes;
+  // Fallback: old data without type column
+  const fallback = db.prepare(`DELETE FROM admins WHERE username = ?`).run(normalised);
+  return fallback.changes;
+}
+
+/**
+ * removeRep — deletes type='rep' rows only.
+ */
+function removeRep(username) {
+  const normalised = normalizeUsername(username);
+  const result = db.prepare(`DELETE FROM admins WHERE type = 'rep' AND username = ?`).run(normalised);
   return result.changes;
 }
 
+/**
+ * getAdmins — returns only type='admin' rows (new behavior).
+ */
 function getAdmins() {
-  return db.prepare(`SELECT * FROM admins ORDER BY role ASC, added_at ASC`).all();
+  return db.prepare(`SELECT * FROM admins WHERE type = 'admin' ORDER BY added_at ASC`).all();
+}
+
+/**
+ * getReps — returns all type='rep' rows.
+ */
+function getReps() {
+  return db.prepare(`SELECT * FROM admins WHERE type = 'rep' ORDER BY role ASC, added_at ASC`).all();
+}
+
+/**
+ * getAllStaff — returns every row.
+ */
+function getAllStaff() {
+  return db.prepare(`SELECT * FROM admins ORDER BY type ASC, role ASC, added_at ASC`).all();
 }
 
 function getAdminsByRole(role) {
   return db.prepare(`SELECT * FROM admins WHERE role = ? OR role = 'both'`).all(role);
 }
 
+/**
+ * getAdminChatIds — dual signature:
+ *   getAdminChatIds(role) → old behavior: WHERE (role=? OR role='both') AND chat_id IS NOT NULL
+ *   getAdminChatIds()     → new behavior: WHERE type='admin' AND chat_id IS NOT NULL
+ */
 function getAdminChatIds(role) {
-  return db.prepare(`SELECT chat_id FROM admins WHERE (role = ? OR role = 'both') AND chat_id IS NOT NULL`).all(role).map(r => Number(r.chat_id));
+  if (role !== undefined) {
+    // Old behavior — used by question routing before the new code path
+    return db.prepare(
+      `SELECT chat_id FROM admins WHERE (role = ? OR role = 'both') AND chat_id IS NOT NULL`
+    ).all(role).map(r => Number(r.chat_id));
+  }
+  // New behavior — only type='admin'
+  return db.prepare(
+    `SELECT chat_id FROM admins WHERE type = 'admin' AND chat_id IS NOT NULL`
+  ).all().map(r => Number(r.chat_id));
+}
+
+/**
+ * getRepChatIds — returns non-null chat_ids where type='rep' AND (role=given OR role='both').
+ */
+function getRepChatIds(role) {
+  return db.prepare(
+    `SELECT chat_id FROM admins WHERE type = 'rep' AND (role = ? OR role = 'both') AND chat_id IS NOT NULL`
+  ).all(role).map(r => Number(r.chat_id));
 }
 
 function updateAdminChatId(username, chatId) {
@@ -243,9 +328,14 @@ module.exports = {
   getUserCategory,
   findDuplicatePendingQuestion,
   addAdmin,
+  addRep,
   removeAdmin,
+  removeRep,
   getAdmins,
+  getReps,
+  getAllStaff,
   getAdminsByRole,
   getAdminChatIds,
+  getRepChatIds,
   updateAdminChatId,
 };

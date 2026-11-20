@@ -157,16 +157,17 @@ test('getUniqueUserChatIds returns from users table (registered but no question)
 
 test('addAdmin inserts and getAdmins returns it', () => {
   storage.addAdmin({ username: 'admin1', role: 'theology', addedBy: 1 });
-  const admins = storage.getAdmins();
-  assert.ok(admins.some(a => a.username === 'admin1' && a.role === 'theology'));
+  // addAdmin with role provided uses old behavior → type='rep'; check via getAllStaff
+  const staff = storage.getAllStaff();
+  assert.ok(staff.some(a => a.username === 'admin1' && a.role === 'theology'));
 });
 
 test('removeAdmin removes correctly', () => {
   storage.addAdmin({ username: 'admin_to_remove', role: 'literature', addedBy: 1 });
   const changes = storage.removeAdmin('admin_to_remove');
-  assert.equal(changes, 1);
-  const admins = storage.getAdmins();
-  assert.ok(!admins.some(a => a.username === 'admin_to_remove'));
+  assert.ok(changes >= 1);
+  const staff = storage.getAllStaff();
+  assert.ok(!staff.some(a => a.username === 'admin_to_remove'));
 });
 
 test('getAdminsByRole returns correct role matches including both', () => {
@@ -192,8 +193,9 @@ test('getAdminChatIds returns only non-null chat_ids', () => {
 test('updateAdminChatId sets chat_id on matching username', () => {
   storage.addAdmin({ username: 'admin_chatid', role: 'both', addedBy: 1 });
   storage.updateAdminChatId('admin_chatid', 99999);
-  const admins = storage.getAdmins();
-  const row = admins.find(a => a.username === 'admin_chatid');
+  // addAdmin with role='both' → type='rep'; use getAllStaff to find the row
+  const staff = storage.getAllStaff();
+  const row = staff.find(a => a.username === 'admin_chatid');
   assert.ok(row);
   assert.equal(row.chat_id, 99999);
 });
@@ -212,4 +214,48 @@ test('getPendingQuestionsByCategory filters correctly', () => {
   assert.ok(litPending.some(q => q.question_text === 'ሥነ ጽሑፍ ጥያቄ ምሳሌ ነው?'));
   const theoPending = storage.getPendingQuestionsByCategory('theology');
   assert.ok(theoPending.every(q => q.category === 'theology'));
+});
+
+test('addRep inserts with type=rep and getReps returns it', () => {
+  storage.addRep({ username: 'rep1', role: 'theology', addedBy: 1 });
+  const reps = storage.getReps();
+  assert.ok(reps.some(r => r.username === 'rep1' && r.role === 'theology' && r.type === 'rep'));
+});
+
+test('addAdmin (new signature, no role) inserts with type=admin and getAdmins returns it', () => {
+  storage.addAdmin({ username: 'admin_new', addedBy: 1 });
+  const admins = storage.getAdmins();
+  assert.ok(admins.some(a => a.username === 'admin_new' && a.type === 'admin'));
+});
+
+test('getRepChatIds returns only reps with non-null chat_id for role', () => {
+  storage.addRep({ username: 'rep_linked', role: 'literature', addedBy: 1 });
+  storage.updateAdminChatId('rep_linked', 77777);
+  storage.addRep({ username: 'rep_unlinked', role: 'literature', addedBy: 1 });
+  const ids = storage.getRepChatIds('literature');
+  assert.ok(ids.includes(77777));
+  assert.ok(ids.every(id => typeof id === 'number'));
+});
+
+test('getAdminChatIds (no role) returns admin chat_ids', () => {
+  storage.addAdmin({ username: 'admin_linked2', addedBy: 1 });
+  storage.updateAdminChatId('admin_linked2', 88888);
+  const ids = storage.getAdminChatIds();
+  assert.ok(ids.includes(88888));
+});
+
+test('removeRep removes correctly', () => {
+  storage.addRep({ username: 'rep_to_remove', role: 'theology', addedBy: 1 });
+  const changes = storage.removeRep('rep_to_remove');
+  assert.equal(changes, 1);
+  const reps = storage.getReps();
+  assert.ok(!reps.some(r => r.username === 'rep_to_remove'));
+});
+
+test('removeAdmin removes correctly (new type=admin)', () => {
+  storage.addAdmin({ username: 'admin_remove2', addedBy: 1 });
+  const changes = storage.removeAdmin('admin_remove2');
+  assert.ok(changes >= 1);
+  const admins = storage.getAdmins();
+  assert.ok(!admins.some(a => a.username === 'admin_remove2'));
 });

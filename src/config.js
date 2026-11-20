@@ -24,15 +24,38 @@ function isOwner(ctx) {
   return false;
 }
 
-function isAdminForRole(ctx, role, db) {
+function isAdminUser(ctx, db) {
   if (isOwner(ctx)) return true;
   if (!ctx || !ctx.from) return false;
   const username = normalizeUsername(ctx.from.username);
   const chatId = ctx.from.id;
-  const admins = db.prepare(
-    `SELECT * FROM admins WHERE (role = ? OR role = 'both') AND (username = ? OR chat_id = ?)`
-  ).all(role, username || '', chatId);
-  return admins.length > 0;
+  const rows = db.prepare(
+    `SELECT * FROM admins WHERE type = 'admin' AND (username = ? OR chat_id = ?)`
+  ).all(username || '', chatId);
+  return rows.length > 0;
 }
 
-module.exports = { OWNER_USERNAME, OWNER_CHAT_ID, isOwner, normalizeUsername, isAdminForRole };
+function isRepForRole(ctx, role, db) {
+  if (isOwner(ctx)) return true;
+  if (isAdminUser(ctx, db)) return true;
+  if (!ctx || !ctx.from) return false;
+  const username = normalizeUsername(ctx.from.username);
+  const chatId = ctx.from.id;
+  const rows = db.prepare(
+    `SELECT * FROM admins WHERE type = 'rep' AND (role = ? OR role = 'both') AND (username = ? OR chat_id = ?)`
+  ).all(role, username || '', chatId);
+  return rows.length > 0;
+}
+
+// Keep isAdminForRole as an alias for backward compat
+const isAdminForRole = isRepForRole;
+
+module.exports = {
+  OWNER_USERNAME,
+  OWNER_CHAT_ID,
+  isOwner,
+  normalizeUsername,
+  isAdminForRole,
+  isAdminUser,
+  isRepForRole,
+};

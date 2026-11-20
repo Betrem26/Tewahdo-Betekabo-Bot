@@ -3,31 +3,35 @@ require('dotenv').config();
 
 const { Telegraf, Markup } = require('telegraf');
 const storage = require('./storage');
-const { isOwner, OWNER_USERNAME, OWNER_CHAT_ID, isAdminForRole } = require('./config');
+const { isOwner, OWNER_USERNAME, OWNER_CHAT_ID, isAdminForRole, isAdminUser, isRepForRole } = require('./config');
 
 // ── Startup guard ────────────────────────────────────────────────────────────
 if (!process.env.BOT_TOKEN) throw new Error('BOT_TOKEN is missing in .env');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// ── Seed first admin ─────────────────────────────────────────────────────────
+// ── Seed first rep ───────────────────────────────────────────────────────────
 try {
-  storage.addAdmin({ username: 'ctc_1559_26', role: 'literature', addedBy: 5586249161 });
+  storage.addRep({ username: 'ctc_1559_26', role: 'literature', addedBy: 5586249161 });
 } catch (_) {}
 
 // ── In-memory state ──────────────────────────────────────────────────────────
 const ownerReplyState = new Map(); // Map<chatId, { questionId }>
 const userCategory    = new Map(); // Map<chatId, 'theology'|'literature'>
 const rateLimitMap    = new Map(); // Map<`${chatId}_${category}`, timestamp>
+const addRepState     = new Map(); // Map<chatId, { step, role? }>
+const addAdminState   = new Map(); // Map<chatId, { step }>
 
 // ── Keyboards ────────────────────────────────────────────────────────────────
 const KB_CATEGORY   = Markup.keyboard([['📖 ለነገረ ሃይማኖት', '📚 ለትምሕርታዊ ስነጽሑፍ']]).resize();
 const KB_THEOLOGY   = Markup.keyboard([['✍️ ጥያቄ ላክ', '🔙 ወደ ምድብ ምረጫ']]).resize();
 const KB_LITERATURE = Markup.keyboard([['✍️ ጥያቄ ላክ', '🔙 ወደ ምድብ ምረጫ']]).resize();
 const KB_OWNER      = Markup.keyboard([
-  ['/pending', '/stats'],
-  ['/broadcast', '/cancel'],
-  ['/admins', '/addadmin'],
+  ['/pending',   '/stats'],
+  ['/reps',      '/admins'],
+  ['/addrep',    '/addadmin'],
+  ['/broadcast', '/export'],
+  ['/cancel'],
 ]).resize();
 
 // ── Static messages ──────────────────────────────────────────────────────────
@@ -52,15 +56,19 @@ const MSG_LITERATURE_WELCOME =
   '✍️ የስነጽሑፍ ጥያቄዎን ከዚህ በታች ይጻፉ።';
 
 const MSG_OWNER_WELCOME =
-  '👑 እንኳን ወደ ተወካይ ፓናል ተቀበሉ!\n\n' +
+  '👑 እንኳን ወደ ተዋሕዶ በተዓቅቦ አስተዳዳሪ ፓናል ተቀበሉ!\n\n' +
   'ያሉት ትዕዛዞች፡\n' +
   '  /pending      — ያልተመለሱ ጥያቄዎች\n' +
   '  /stats        — ስታቲስቲክስ\n' +
+  '  /reps         — ተወካዮች ዝርዝር\n' +
+  '  /admins       — አስተዳዳሪዎች ዝርዝር\n' +
+  '  /addrep       — አዲስ ተወካይ ጨምር\n' +
+  '  /addadmin     — አዲስ አስተዳዳሪ ጨምር\n' +
+  '  /removerep    — ተወካይ አስወግድ\n' +
+  '  /removeadmin  — አስተዳዳሪ አስወግድ\n' +
   '  /broadcast    — ለሁሉም ተጠቃሚዎች መልዕክት ላክ\n' +
-  '  /cancel       — እየተጻፈ ያለ መልስ ሰርዝ\n' +
-  '  /admins       — ተወካዮች ዝርዝር\n' +
-  '  /addadmin     — አዲስ ተወካይ ጨምር\n' +
-  '  /removeadmin  — ተወካይ አስወግድ';
+  '  /export       — ሁሉም ጥያቄዎች ፋይል ወደ ሰድ\n' +
+  '  /cancel       — እየተጻፈ ያለ መልስ ሰርዝ';
 
 // ── Utility ──────────────────────────────────────────────────────────────────
 function resolveOwnerChatId() {
@@ -87,24 +95,23 @@ bot.start(async (ctx) => {
 
 // ── /pending ──────────────────────────────────────────────────────────────────
 bot.command('pending', async (ctx) => {
-  const isTheoAdmin = isAdminForRole(ctx, 'theology', storage.db);
-  const isLitAdmin  = isAdminForRole(ctx, 'literature', storage.db);
-  if (!isOwner(ctx) && !isTheoAdmin && !isLitAdmin) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  if (!isOwner(ctx) && !isRepForRole(ctx, 'theology', storage.db) && !isRepForRole(ctx, 'literature', storage.db)) {
+    return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  }
 
   let rows;
-  if (isOwner(ctx)) {
+  if (isOwner(ctx) || isAdminUser(ctx, storage.db)) {
     rows = storage.getPendingQuestions();
   } else {
-    // Determine admin's role
+    // Rep: determine their role
     const username = (ctx.from.username || '').replace(/^@/, '').toLowerCase();
-    const adminRow = storage.getAdmins().find(
-      a => a.username === username || a.chat_id === ctx.from.id
-    );
-    const adminRole = adminRow ? adminRow.role : null;
-    if (adminRole === 'both' || !adminRole) {
+    const repRows = storage.getReps();
+    const repRow = repRows.find(a => a.username === username || a.chat_id === ctx.from.id);
+    const repRole = repRow ? repRow.role : null;
+    if (repRole === 'both' || !repRole) {
       rows = storage.getPendingQuestions();
     } else {
-      rows = storage.getPendingQuestionsByCategory(adminRole);
+      rows = storage.getPendingQuestionsByCategory(repRole);
     }
   }
 
@@ -132,47 +139,11 @@ bot.command('pending', async (ctx) => {
 
 // ── /stats ────────────────────────────────────────────────────────────────────
 bot.command('stats', async (ctx) => {
-  const isTheoAdmin = isAdminForRole(ctx, 'theology', storage.db);
-  const isLitAdmin  = isAdminForRole(ctx, 'literature', storage.db);
-  if (!isOwner(ctx) && !isTheoAdmin && !isLitAdmin) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
 
-  if (isOwner(ctx)) {
-    const s = storage.getStats();
-    return ctx.reply(
-      '📊 አጠቃላይ ስታቲስቲክስ\n\n' +
-      `📨 ጠቅላላ ጥያቄዎች:   ${s.total}\n` +
-      `⏳ ያልተመለሱ:        ${s.pending}\n` +
-      `✅ በቦት የተመለሱ:     ${s.answered_bot}\n` +
-      `📢 በጉባኤ የተመለሱ:   ${s.answered_assembly}\n` +
-      `🗓️ እሑድ የተመለሱ:    ${s.answered_sunday}\n` +
-      `🗓️ ማክሰኞ የተመለሱ:   ${s.answered_tuesday}`
-    );
-  }
-
-  // Admin: show filtered stats
-  const username = (ctx.from.username || '').replace(/^@/, '').toLowerCase();
-  const adminRow = storage.getAdmins().find(
-    a => a.username === username || a.chat_id === ctx.from.id
-  );
-  const adminRole = adminRow ? adminRow.role : null;
-
-  if (adminRole === 'both' || !adminRole) {
-    const s = storage.getStats();
-    return ctx.reply(
-      '📊 አጠቃላይ ስታቲስቲክስ\n\n' +
-      `📨 ጠቅላላ ጥያቄዎች:   ${s.total}\n` +
-      `⏳ ያልተመለሱ:        ${s.pending}\n` +
-      `✅ በቦት የተመለሱ:     ${s.answered_bot}\n` +
-      `📢 በጉባኤ የተመለሱ:   ${s.answered_assembly}\n` +
-      `🗓️ እሑድ የተመለሱ:    ${s.answered_sunday}\n` +
-      `🗓️ ማክሰኞ የተመለሱ:   ${s.answered_tuesday}`
-    );
-  }
-
-  const s = storage.getStatsByCategory(adminRole);
-  const catLabel = adminRole === 'theology' ? '📖 ነገረ ሃይማኖት' : '📚 ትምሕርታዊ ስነጽሑፍ';
+  const s = storage.getStats();
   return ctx.reply(
-    `📊 ${catLabel} ስታቲስቲክስ\n\n` +
+    '📊 አጠቃላይ ስታቲስቲክስ\n\n' +
     `📨 ጠቅላላ ጥያቄዎች:   ${s.total}\n` +
     `⏳ ያልተመለሱ:        ${s.pending}\n` +
     `✅ በቦት የተመለሱ:     ${s.answered_bot}\n` +
@@ -184,7 +155,7 @@ bot.command('stats', async (ctx) => {
 
 // ── /broadcast ────────────────────────────────────────────────────────────────
 bot.command('broadcast', async (ctx) => {
-  if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
   const body = (ctx.message.text || '').replace(/^\/broadcast\s*/, '').trim();
   if (!body) return ctx.reply('⚠️ አጠቃቀም: /broadcast <መልዕክት>\nምሳሌ: /broadcast ዛሬ ጉባኤ አለ!');
   const chatIds = storage.getUniqueUserChatIds();
@@ -201,6 +172,14 @@ bot.command('broadcast', async (ctx) => {
 // ── /cancel ───────────────────────────────────────────────────────────────────
 bot.command('cancel', async (ctx) => {
   if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  if (addRepState.has(ctx.chat.id)) {
+    addRepState.delete(ctx.chat.id);
+    return ctx.reply('❌ ተሰርዟል።');
+  }
+  if (addAdminState.has(ctx.chat.id)) {
+    addAdminState.delete(ctx.chat.id);
+    return ctx.reply('❌ ተሰርዟል።');
+  }
   if (ownerReplyState.has(ctx.chat.id)) {
     ownerReplyState.delete(ctx.chat.id);
     return ctx.reply('❌ መልስ መጻፍ ተሰርዟል።');
@@ -210,12 +189,14 @@ bot.command('cancel', async (ctx) => {
 
 // ── /reply <id> ───────────────────────────────────────────────────────────────
 bot.command('reply', async (ctx) => {
-  if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
   const arg = ctx.message.text.replace(/^\/reply\s*/, '').trim();
   const questionId = Number(arg);
   if (!arg || isNaN(questionId)) return ctx.reply('⚠️ አጠቃቀም: /reply <id>  ምሳሌ: /reply 5');
   const question = storage.getQuestionById(questionId);
   if (!question) return ctx.reply(`⚠️ ጥያቄ #${questionId} አልተገኘም።`);
+  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db) && !isRepForRole(ctx, question.category, storage.db)) {
+    return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  }
   if (question.status !== 'pending') return ctx.reply(`ℹ️ ጥያቄ #${questionId} አስቀድሞ ተመልሷል።`);
   ownerReplyState.set(ctx.chat.id, { questionId });
   return ctx.reply('✍️ ለጥያቄ #' + questionId + ' መልስዎን ይጻፉ። ለመሰረዝ /cancel ይጠቀሙ።');
@@ -223,7 +204,7 @@ bot.command('reply', async (ctx) => {
 
 // ── /export ───────────────────────────────────────────────────────────────────
 bot.command('export', async (ctx) => {
-  if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
   const all = storage.db.prepare('SELECT * FROM questions ORDER BY id ASC').all();
   if (!all.length) return ctx.reply('📭 ምንም ጥያቄ የለም።');
   const lines = all.map(q => [
@@ -243,16 +224,63 @@ bot.command('export', async (ctx) => {
 // ── /addadmin ─────────────────────────────────────────────────────────────────
 bot.command('addadmin', async (ctx) => {
   if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
-  const args = (ctx.message.text || '').replace(/^\/addadmin\s*/, '').trim().split(/\s+/);
-  if (args.length < 2) return ctx.reply('⚠️ አጠቃቀም: /addadmin @username theology|literature|both');
-  const username = (args[0] || '').replace(/^@/, '').toLowerCase().trim();
-  const role = (args[1] || '').toLowerCase().trim();
-  if (!username || !['theology', 'literature', 'both'].includes(role)) {
-    return ctx.reply('⚠️ አጠቃቀም: /addadmin @username theology|literature|both');
-  }
-  const roleLabels = { theology: 'ነገረ ሃይማኖት', literature: 'ትምሕርታዊ ስነጽሑፍ', both: 'ሁሉም ምድቦች' };
-  storage.addAdmin({ username, role, addedBy: OWNER_CHAT_ID || ctx.from.id });
-  return ctx.reply(`✅ @${username} የ${roleLabels[role]} ተወካይ ሆነው ተመድበዋል።`);
+  addAdminState.set(ctx.chat.id, { step: 'enter_username' });
+  return ctx.reply(
+    '👑 አዲስ አስተዳዳሪ ጨምር\nየአስተዳዳሪውን Telegram username ይጻፉ።\n(ምሳሌ: @username)',
+    Markup.inlineKeyboard([[Markup.button.callback('❌ ሰርዝ', 'addadmin_cancel')]])
+  );
+});
+
+bot.action('addadmin_cancel', async (ctx) => {
+  try { await ctx.answerCbQuery(); } catch (_) {}
+  addAdminState.delete(ctx.chat.id);
+  try { await ctx.editMessageText('❌ ተሰርዟል።'); } catch (_) {}
+});
+
+// ── /addrep ───────────────────────────────────────────────────────────────────
+bot.command('addrep', async (ctx) => {
+  if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  addRepState.set(ctx.chat.id, { step: 'choose_category' });
+  return ctx.reply(
+    '👥 አዲስ ተወካይ ጨምር\nየትኛውን ምድብ ተወካይ ነው?',
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback('📖 ነገረ ሃይማኖት', 'addrep_cat_theology'),
+        Markup.button.callback('📚 ትምሕርታዊ ስነጽሑፍ', 'addrep_cat_literature'),
+        Markup.button.callback('❌ ሰርዝ', 'addrep_cancel'),
+      ]
+    ])
+  );
+});
+
+bot.action('addrep_cancel', async (ctx) => {
+  try { await ctx.answerCbQuery(); } catch (_) {}
+  addRepState.delete(ctx.chat.id);
+  try { await ctx.editMessageText('❌ ተሰርዟል።'); } catch (_) {}
+});
+
+bot.action(/^addrep_cat_(theology|literature)$/, async (ctx) => {
+  try { await ctx.answerCbQuery(); } catch (_) {}
+  if (!isOwner(ctx)) return;
+  const role = ctx.match[1];
+  addRepState.set(ctx.chat.id, { step: 'enter_username', role });
+  const catLabel = role === 'theology' ? '📖 ነገረ ሃይማኖት' : '📚 ትምሕርታዊ ስነጽሑፍ';
+  try {
+    await ctx.editMessageText(
+      `${catLabel} ተወካይ\n\nየተወካዩን Telegram username ይጻፉ።\n(ምሳሌ: @username)`
+    );
+  } catch (_) {}
+});
+
+// ── /removerep ────────────────────────────────────────────────────────────────
+bot.command('removerep', async (ctx) => {
+  if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  const arg = (ctx.message.text || '').replace(/^\/removerep\s*/, '').trim();
+  const username = arg.replace(/^@/, '').toLowerCase();
+  if (!username) return ctx.reply('⚠️ አጠቃቀም: /removerep @username');
+  const changes = storage.removeRep(username);
+  if (changes === 0) return ctx.reply(`⚠️ @${username} በተወካዮች ዝርዝር ውስጥ አልተገኘም።`);
+  return ctx.reply(`✅ @${username} ከተወካዮች ተወግደዋል።`);
 });
 
 // ── /removeadmin ──────────────────────────────────────────────────────────────
@@ -262,22 +290,46 @@ bot.command('removeadmin', async (ctx) => {
   const username = arg.replace(/^@/, '').toLowerCase();
   if (!username) return ctx.reply('⚠️ አጠቃቀም: /removeadmin @username');
   const changes = storage.removeAdmin(username);
-  if (changes === 0) return ctx.reply(`⚠️ @${username} በተወካዮች ዝርዝር ውስጥ አልተገኘም።`);
-  return ctx.reply(`✅ @${username} ከተወካዮች ተወግደዋል።`);
+  if (changes === 0) return ctx.reply(`⚠️ @${username} በአስተዳዳሪዎች ዝርዝር ውስጥ አልተገኘም።`);
+  return ctx.reply(`✅ @${username} ከአስተዳዳሪዎች ተወግደዋል።`);
+});
+
+// ── /reps ─────────────────────────────────────────────────────────────────────
+bot.command('reps', async (ctx) => {
+  if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  const reps = storage.getReps();
+  if (!reps.length) return ctx.reply('👥 ምንም ተወካይ አልተመደበም።');
+  const theoReps = reps.filter(r => r.role === 'theology' || r.role === 'both');
+  const litReps  = reps.filter(r => r.role === 'literature' || r.role === 'both');
+  let msg = `👥 ተወካዮች ዝርዝር፡ ${reps.length}\n`;
+  if (theoReps.length) {
+    msg += '\n📖 ነገረ ሃይማኖት:\n';
+    theoReps.forEach((r, i) => {
+      const linked = r.chat_id ? '✅' : '⏳ (ቦቱን ገና አልጀመሩም)';
+      msg += `  ${i + 1}. @${r.username} ${linked}\n`;
+    });
+  }
+  if (litReps.length) {
+    msg += '\n📚 ትምሕርታዊ ስነጽሑፍ:\n';
+    litReps.forEach((r, i) => {
+      const linked = r.chat_id ? '✅' : '⏳ (ቦቱን ገና አልጀመሩም)';
+      msg += `  ${i + 1}. @${r.username} ${linked}\n`;
+    });
+  }
+  return ctx.reply(msg.trim());
 });
 
 // ── /admins ───────────────────────────────────────────────────────────────────
 bot.command('admins', async (ctx) => {
   if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
   const admins = storage.getAdmins();
-  if (!admins.length) return ctx.reply('👥 ምንም ተወካይ አልተመደበም።');
-  const roleLabels = { theology: 'ነገረ ሃይማኖት', literature: 'ትምሕርታዊ ስነጽሑፍ', both: 'ሁሉም ምድቦች' };
-  const lines = admins.map((a, i) => {
-    const linked = a.chat_id ? '✅' : '⏳';
-    const hint   = a.chat_id ? '(linked)' : '(not started bot yet)';
-    return `${i + 1}. @${a.username} — ${roleLabels[a.role] || a.role} ${linked} ${hint}`;
+  if (!admins.length) return ctx.reply('👑 ምንም አስተዳዳሪ አልተመደበም።');
+  let msg = `👑 አስተዳዳሪዎች ዝርዝር፡ ${admins.length}\n\n`;
+  admins.forEach((a, i) => {
+    const linked = a.chat_id ? '✅' : '⏳ (ቦቱን ገና አልጀመሩም)';
+    msg += `${i + 1}. @${a.username} ${linked}\n`;
   });
-  return ctx.reply(`👥 ተወካዮች ዝርዝር፡ ${admins.length}\n\n${lines.join('\n')}`);
+  return ctx.reply(msg.trim());
 });
 
 // ── /help ─────────────────────────────────────────────────────────────────────
@@ -285,7 +337,7 @@ bot.help(async (ctx) => {
   if (isOwner(ctx)) {
     return ctx.reply(
       MSG_OWNER_WELCOME +
-      '\n  /reply <id>  — ለተወሰነ ጥያቄ መልስ ላክ\n  /export      — ሁሉም ጥያቄዎች ፋይል ወደ ሰድ\n  /help        — ይህን ዝርዝር አሳይ',
+      '\n  /reply <id>  — ለተወሰነ ጥያቄ መልስ ላክ\n  /help        — ይህን ዝርዝር አሳይ',
       KB_OWNER
     );
   }
@@ -313,6 +365,31 @@ bot.on('text', async (ctx) => {
     } catch (e) {
       console.error('Failed to send reply:', e.message);
       return ctx.reply('⚠️ መልሱን መላክ አልተቻለም።');
+    }
+  }
+
+  // Handle addAdminState
+  if (isOwner(ctx) && addAdminState.has(ctx.chat.id)) {
+    const state = addAdminState.get(ctx.chat.id);
+    if (state.step === 'enter_username') {
+      const username = text.replace(/^@/, '').trim().toLowerCase();
+      if (!username) return ctx.reply('⚠️ ትክክለኛ username ያስፈልጋል።');
+      storage.addAdmin({ username, addedBy: ctx.from.id });
+      addAdminState.delete(ctx.chat.id);
+      return ctx.reply(`✅ @${username} አስተዳዳሪ ሆነው ተመድበዋል።\nቦቱን ሲጀምሩ ሙሉ መዳረሻ ይኖራቸዋል።`);
+    }
+  }
+
+  // Handle addRepState
+  if (isOwner(ctx) && addRepState.has(ctx.chat.id)) {
+    const state = addRepState.get(ctx.chat.id);
+    if (state.step === 'enter_username') {
+      const username = text.replace(/^@/, '').trim().toLowerCase();
+      if (!username) return ctx.reply('⚠️ ትክክለኛ username ያስፈልጋል።');
+      const catLabel = state.role === 'theology' ? 'ነገረ ሃይማኖት' : 'ትምሕርታዊ ስነጽሑፍ';
+      storage.addRep({ username, role: state.role, addedBy: ctx.from.id });
+      addRepState.delete(ctx.chat.id);
+      return ctx.reply(`✅ @${username} የ${catLabel} ተወካይ ሆነው ተመድበዋል።\nቦቱን ሲጀምሩ ጥያቄዎች ይደርሳቸዋል።`);
     }
   }
 
@@ -388,9 +465,10 @@ bot.on('text', async (ctx) => {
     `💬 ጥያቄ:\n${text}`;
 
   try {
-    // Build recipient list (owner + category admins), deduplicated
-    const adminChatIds = storage.getAdminChatIds(cat);
-    const recipientSet = new Set([ownerChatId, ...adminChatIds].filter(id => id != null));
+    // Build recipient list (owner + admins + reps for category), deduplicated
+    const adminChatIds = storage.getAdminChatIds(); // type='admin', no role filter
+    const repChatIds   = storage.getRepChatIds(cat);
+    const recipientSet = new Set([ownerChatId, ...adminChatIds, ...repChatIds].filter(id => id != null));
     const recipients = Array.from(recipientSet);
 
     if (cat === 'theology') {
@@ -514,14 +592,17 @@ async function registerBotCommands() {
     { command: 'start',        description: 'ቦቱን ጀምር' },
     { command: 'pending',      description: 'ያልተመለሱ ጥያቄዎች' },
     { command: 'stats',        description: 'ስታቲስቲክስ' },
+    { command: 'reps',         description: 'ተወካዮች ዝርዝር' },
+    { command: 'admins',       description: 'አስተዳዳሪዎች ዝርዝር' },
+    { command: 'addrep',       description: 'አዲስ ተወካይ ጨምር' },
+    { command: 'addadmin',     description: 'አዲስ አስተዳዳሪ ጨምር' },
+    { command: 'removerep',    description: 'ተወካይ አስወግድ' },
+    { command: 'removeadmin',  description: 'አስተዳዳሪ አስወግድ' },
     { command: 'broadcast',    description: 'ማስታወቂያ ላክ' },
     { command: 'cancel',       description: 'መልስ መጻፍ ሰርዝ' },
     { command: 'reply',        description: 'ለተወሰነ ጥያቄ መልስ ላክ' },
     { command: 'export',       description: 'ሁሉም ጥያቄዎች ፋይል ወደ ሰድ' },
     { command: 'help',         description: 'ትዕዛዞች ዝርዝር' },
-    { command: 'admins',       description: 'ተወካዮች ዝርዝር' },
-    { command: 'addadmin',     description: 'አዲስ ተወካይ ጨምር' },
-    { command: 'removeadmin',  description: 'ተወካይ አስወግድ' },
   ];
   const ownerIds = new Set();
   if (OWNER_CHAT_ID) ownerIds.add(OWNER_CHAT_ID);
