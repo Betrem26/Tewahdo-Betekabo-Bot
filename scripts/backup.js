@@ -2,6 +2,16 @@
 const fs   = require('fs');
 const path = require('path');
 
+if (process.env.TURSO_DATABASE_URL) {
+  // When using Turso cloud, backups are managed by Turso.
+  // The free plan provides 1-day point-in-time restore automatically.
+  // No local backup action is needed.
+  console.log('ℹ️  Running with Turso cloud database. Backups are handled by Turso (free plan: 1-day point-in-time restore).');
+  console.log('   To restore, visit your Turso dashboard or use: turso db restore <db-name>');
+  process.exit(0);
+}
+
+// Local development: copy the local bot.db file
 const src     = path.join(__dirname, '..', 'data', 'bot.db');
 const backDir = path.join(__dirname, '..', 'data', 'backups');
 

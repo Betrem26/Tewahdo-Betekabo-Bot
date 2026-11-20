@@ -10,11 +10,6 @@ if (!process.env.BOT_TOKEN) throw new Error('BOT_TOKEN is missing in .env');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// ── Seed first rep ───────────────────────────────────────────────────────────
-try {
-  storage.addRep({ username: 'ctc_1559_26', role: 'literature', addedBy: 5586249161 });
-} catch (_) {}
-
 // ── In-memory state ──────────────────────────────────────────────────────────
 const ownerReplyState = new Map(); // Map<chatId, { questionId }>
 const userCategory    = new Map(); // Map<chatId, 'theology'|'literature'>
@@ -82,26 +77,27 @@ const MSG_OWNER_WELCOME =
   '  /cancel       — እየተጻፈ ያለ መልስ ሰርዝ';
 
 // ── Utility ──────────────────────────────────────────────────────────────────
-function resolveOwnerChatId() {
+async function resolveOwnerChatId() {
   if (OWNER_CHAT_ID) return OWNER_CHAT_ID;
   if (OWNER_USERNAME) {
-    const row = storage.db
-      .prepare(`SELECT chat_id FROM users WHERE lower(username) = ? LIMIT 1`)
-      .get(OWNER_USERNAME);
-    if (row) return Number(row.chat_id);
+    const result = await storage.db.execute({
+      sql: 'SELECT chat_id FROM users WHERE lower(username) = ? LIMIT 1',
+      args: [OWNER_USERNAME],
+    });
+    if (result.rows.length > 0) return Number(result.rows[0].chat_id);
   }
   return null;
 }
 
 // ── /start ────────────────────────────────────────────────────────────────────
 bot.start(async (ctx) => {
-  storage.upsertUser({
+  await storage.upsertUser({
     userId: ctx.from.id, chatId: ctx.chat.id,
     username: ctx.from.username, firstName: ctx.from.first_name, lastName: ctx.from.last_name,
   });
 
   // If this user is a rep or admin, refresh their command list immediately
-  const allStaff = storage.getAllStaff();
+  const allStaff = await storage.getAllStaff();
   const normalised = (ctx.from.username || '').replace(/^@/, '').toLowerCase();
   const staffRow = allStaff.find(s => s.username === normalised || s.chat_id === ctx.from.id);
   if (staffRow) {
@@ -115,7 +111,6 @@ bot.start(async (ctx) => {
     if (staffRow.type === 'admin') {
       return ctx.reply(MSG_OWNER_WELCOME, KB_OWNER);
     }
-    const catLabel = staffRow.role === 'theology' ? '📖 ነገረ ሃይማኖት' : '📚 ትምሕርታዊ ስነጽሑፍ';
     const repWelcome = staffRow.role === 'literature'
       ? '✝️ እንኳን ወደ ተዋሕዶ በተዓቅቦ በደህና መጡ!\n\n' +
         'እርስዎ በዚህ ቦት ላይ የትምህርት ክፍል ትምሕርታዊ ስነ ጽሑፍ ተወካይ ሆነው ተሹመዋል።\n\n' +
@@ -141,23 +136,23 @@ bot.start(async (ctx) => {
 
 // ── /pending ──────────────────────────────────────────────────────────────────
 bot.command('pending', async (ctx) => {
-  if (!isOwner(ctx) && !isRepForRole(ctx, 'theology', storage.db) && !isRepForRole(ctx, 'literature', storage.db)) {
+  if (!isOwner(ctx) && !await isRepForRole(ctx, 'theology', storage.db) && !await isRepForRole(ctx, 'literature', storage.db)) {
     return ctx.reply('⛔ ፈቃድ የለዎትም።');
   }
 
   let rows;
-  if (isOwner(ctx) || isAdminUser(ctx, storage.db)) {
-    rows = storage.getPendingQuestions();
+  if (isOwner(ctx) || await isAdminUser(ctx, storage.db)) {
+    rows = await storage.getPendingQuestions();
   } else {
     // Rep: determine their role
     const username = (ctx.from.username || '').replace(/^@/, '').toLowerCase();
-    const repRows = storage.getReps();
+    const repRows = await storage.getReps();
     const repRow = repRows.find(a => a.username === username || a.chat_id === ctx.from.id);
     const repRole = repRow ? repRow.role : null;
     if (repRole === 'both' || !repRole) {
-      rows = storage.getPendingQuestions();
+      rows = await storage.getPendingQuestions();
     } else {
-      rows = storage.getPendingQuestionsByCategory(repRole);
+      rows = await storage.getPendingQuestionsByCategory(repRole);
     }
   }
 
@@ -170,7 +165,7 @@ bot.command('pending', async (ctx) => {
     const buttons = q.category === 'literature'
       ? [[
           Markup.button.callback('✅ በቦት መልስ',      `reply_bot_${q.id}`),
-          Markup.button.callback('�️ ማክሰኞ ይመለሳል', `answered_tuesday_${q.id}`),
+          Markup.button.callback('🗓️ ማክሰኞ ይመለሳል', `answered_tuesday_${q.id}`),
         ]]
       : [[
           Markup.button.callback('✅ በቦት መልስ',     `reply_bot_${q.id}`),
@@ -183,9 +178,9 @@ bot.command('pending', async (ctx) => {
 
 // ── /stats ────────────────────────────────────────────────────────────────────
 bot.command('stats', async (ctx) => {
-  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  if (!isOwner(ctx) && !await isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
 
-  const s = storage.getStats();
+  const s = await storage.getStats();
   return ctx.reply(
     '📊 አጠቃላይ ስታቲስቲክስ\n\n' +
     `📨 ጠቅላላ ጥያቄዎች:   ${s.total}\n` +
@@ -199,9 +194,9 @@ bot.command('stats', async (ctx) => {
 
 // ── /broadcast ────────────────────────────────────────────────────────────────
 bot.command('broadcast', async (ctx) => {
-  const isAdmin = isOwner(ctx) || isAdminUser(ctx, storage.db);
+  const isAdmin = isOwner(ctx) || await isAdminUser(ctx, storage.db);
   const normalised = (ctx.from.username || '').replace(/^@/, '').toLowerCase();
-  const repRow = storage.getReps().find(r => r.username === normalised || r.chat_id === ctx.from.id);
+  const repRow = (await storage.getReps()).find(r => r.username === normalised || r.chat_id === ctx.from.id);
 
   if (!isAdmin && !repRow) return ctx.reply('⛔ ፈቃድ የለዎትም።');
 
@@ -210,7 +205,7 @@ bot.command('broadcast', async (ctx) => {
   // Rep broadcast — scoped to their category's users
   if (!isAdmin && repRow) {
     if (!body) return ctx.reply('⚠️ አጠቃቀም: /broadcast <መልዕክት>\nምሳሌ: /broadcast ዛሬ ትምህርት አለ!');
-    const chatIds = storage.getUserChatIdsByCategory(repRow.role);
+    const chatIds = await storage.getUserChatIdsByCategory(repRow.role);
     if (!chatIds.length) return ctx.reply('📭 ምንም ተጠቃሚ የለም።');
     const catLabel = repRow.role === 'theology' ? 'ነገረ ሃይማኖት' : 'ትምሕርታዊ ስነጽሑፍ';
     const msgText = `📢 ከተዋሕዶ በተዓቅቦ ${catLabel} ክፍል ማስታወቂያ፡\n\n${body}`;
@@ -224,7 +219,7 @@ bot.command('broadcast', async (ctx) => {
 
   // Owner/admin broadcast — all users
   if (!body) return ctx.reply('⚠️ አጠቃቀም: /broadcast <መልዕክት>\nምሳሌ: /broadcast ዛሬ ጉባኤ አለ!');
-  const chatIds = storage.getUniqueUserChatIds();
+  const chatIds = await storage.getUniqueUserChatIds();
   if (!chatIds.length) return ctx.reply('📭 ምንም ተጠቃሚ የለም።');
   const msgText = `📢 ከተዋሕዶ በተዓቅቦ ተጠሪ ማስታወቂያ፡\n\n${body}`;
   let sent = 0, failed = 0;
@@ -258,9 +253,9 @@ bot.command('reply', async (ctx) => {
   const arg = ctx.message.text.replace(/^\/reply\s*/, '').trim();
   const questionId = Number(arg);
   if (!arg || isNaN(questionId)) return ctx.reply('⚠️ አጠቃቀም: /reply <id>  ምሳሌ: /reply 5');
-  const question = storage.getQuestionById(questionId);
+  const question = await storage.getQuestionById(questionId);
   if (!question) return ctx.reply(`⚠️ ጥያቄ #${questionId} አልተገኘም።`);
-  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db) && !isRepForRole(ctx, question.category, storage.db)) {
+  if (!isOwner(ctx) && !await isAdminUser(ctx, storage.db) && !await isRepForRole(ctx, question.category, storage.db)) {
     return ctx.reply('⛔ ፈቃድ የለዎትም።');
   }
   if (question.status !== 'pending') return ctx.reply(`ℹ️ ጥያቄ #${questionId} አስቀድሞ ተመልሷል።`);
@@ -270,8 +265,8 @@ bot.command('reply', async (ctx) => {
 
 // ── /export ───────────────────────────────────────────────────────────────────
 bot.command('export', async (ctx) => {
-  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
-  const all = storage.db.prepare('SELECT * FROM questions ORDER BY id ASC').all();
+  if (!isOwner(ctx) && !await isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  const all = await storage.getAllQuestions();
   if (!all.length) return ctx.reply('📭 ምንም ጥያቄ የለም።');
   const lines = all.map(q => [
     q.id,
@@ -344,7 +339,7 @@ bot.command('removerep', async (ctx) => {
   const arg = (ctx.message.text || '').replace(/^\/removerep\s*/, '').trim();
   const username = arg.replace(/^@/, '').toLowerCase();
   if (!username) return ctx.reply('⚠️ አጠቃቀም: /removerep @username');
-  const changes = storage.removeRep(username);
+  const changes = await storage.removeRep(username);
   if (changes === 0) return ctx.reply(`⚠️ @${username} በተወካዮች ዝርዝር ውስጥ አልተገኘም።`);
   return ctx.reply(`✅ @${username} ከተወካዮች ተወግደዋል።`);
 });
@@ -355,7 +350,7 @@ bot.command('removeadmin', async (ctx) => {
   const arg = (ctx.message.text || '').replace(/^\/removeadmin\s*/, '').trim();
   const username = arg.replace(/^@/, '').toLowerCase();
   if (!username) return ctx.reply('⚠️ አጠቃቀም: /removeadmin @username');
-  const changes = storage.removeAdmin(username);
+  const changes = await storage.removeAdmin(username);
   if (changes === 0) return ctx.reply(`⚠️ @${username} በአስተዳዳሪዎች ዝርዝር ውስጥ አልተገኘም።`);
   return ctx.reply(`✅ @${username} ከአስተዳዳሪዎች ተወግደዋል።`);
 });
@@ -363,7 +358,7 @@ bot.command('removeadmin', async (ctx) => {
 // ── /reps ─────────────────────────────────────────────────────────────────────
 bot.command('reps', async (ctx) => {
   if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
-  const reps = storage.getReps();
+  const reps = await storage.getReps();
   if (!reps.length) return ctx.reply('👥 ምንም ተወካይ አልተመደበም።');
   const theoReps = reps.filter(r => r.role === 'theology' || r.role === 'both');
   const litReps  = reps.filter(r => r.role === 'literature' || r.role === 'both');
@@ -388,7 +383,7 @@ bot.command('reps', async (ctx) => {
 // ── /admins ───────────────────────────────────────────────────────────────────
 bot.command('admins', async (ctx) => {
   if (!isOwner(ctx)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
-  const admins = storage.getAdmins();
+  const admins = await storage.getAdmins();
   if (!admins.length) return ctx.reply('👑 ምንም አስተዳዳሪ አልተመደበም።');
   let msg = `👑 አስተዳዳሪዎች ዝርዝር፡ ${admins.length}\n\n`;
   admins.forEach((a, i) => {
@@ -418,14 +413,14 @@ bot.on('text', async (ctx) => {
   // Owner/admin in reply-state
   if (isOwner(ctx) && ownerReplyState.has(ctx.chat.id)) {
     const { questionId } = ownerReplyState.get(ctx.chat.id);
-    const question = storage.getQuestionById(questionId);
+    const question = await storage.getQuestionById(questionId);
     if (!question) {
       ownerReplyState.delete(ctx.chat.id);
       return ctx.reply('⚠️ ጥያቄው አልተገኘም።');
     }
     try {
       await ctx.telegram.sendMessage(question.user_chat_id, '📩 ከተዋሕዶ በተዓቅቦ ተጠሪ የተላከ መልስ፡\n\n' + text);
-      storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_bot' });
+      await storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_bot' });
       ownerReplyState.delete(ctx.chat.id);
       return ctx.reply('✅ መልስዎ ለተጠቃሚው ተልኳል።');
     } catch (e) {
@@ -440,7 +435,7 @@ bot.on('text', async (ctx) => {
     if (state.step === 'enter_username') {
       const username = text.replace(/^@/, '').trim().toLowerCase();
       if (!username) return ctx.reply('⚠️ ትክክለኛ username ያስፈልጋል።');
-      storage.addAdmin({ username, addedBy: ctx.from.id });
+      await storage.addAdmin({ username, addedBy: ctx.from.id });
       addAdminState.delete(ctx.chat.id);
       return ctx.reply(`✅ @${username} አስተዳዳሪ ሆነው ተመድበዋል።\nቦቱን ሲጀምሩ ሙሉ መዳረሻ ይኖራቸዋል።`);
     }
@@ -453,7 +448,7 @@ bot.on('text', async (ctx) => {
       const username = text.replace(/^@/, '').trim().toLowerCase();
       if (!username) return ctx.reply('⚠️ ትክክለኛ username ያስፈልጋል።');
       const catLabel = state.role === 'theology' ? 'ነገረ ሃይማኖት' : 'ትምሕርታዊ ስነጽሑፍ';
-      storage.addRep({ username, role: state.role, addedBy: ctx.from.id });
+      await storage.addRep({ username, role: state.role, addedBy: ctx.from.id });
       addRepState.delete(ctx.chat.id);
       return ctx.reply(`✅ @${username} የ${catLabel} ተወካይ ሆነው ተመድበዋል።\nቦቱን ሲጀምሩ ጥያቄዎች ይደርሳቸዋል።`);
     }
@@ -469,12 +464,12 @@ bot.on('text', async (ctx) => {
   }
   if (text === '📖 ለነገረ ሃይማኖት') {
     userCategory.set(ctx.chat.id, 'theology');
-    storage.setUserCategory(ctx.chat.id, 'theology');
+    await storage.setUserCategory(ctx.chat.id, 'theology');
     return ctx.reply(MSG_THEOLOGY_WELCOME, KB_THEOLOGY);
   }
   if (text === '📚 ለትምሕርታዊ ስነጽሑፍ') {
     userCategory.set(ctx.chat.id, 'literature');
-    storage.setUserCategory(ctx.chat.id, 'literature');
+    await storage.setUserCategory(ctx.chat.id, 'literature');
     return ctx.reply(MSG_LITERATURE_WELCOME, KB_LITERATURE);
   }
   if (text === '✍️ ጥያቄ ላክ') {
@@ -487,7 +482,7 @@ bot.on('text', async (ctx) => {
   // User question — resolve category (memory first, then DB)
   let cat = userCategory.get(ctx.chat.id);
   if (!cat) {
-    const dbCat = storage.getUserCategory(ctx.chat.id);
+    const dbCat = await storage.getUserCategory(ctx.chat.id);
     if (dbCat) {
       cat = dbCat;
       userCategory.set(ctx.chat.id, cat);
@@ -500,7 +495,7 @@ bot.on('text', async (ctx) => {
   if (text.length > 1000) return ctx.reply('⚠️ ጥያቄዎ በጣም ረጅም ነው። እስከ 1000 ፊደላት ብቻ ይፈቀዳል።');
 
   // Feature #7: duplicate question guard
-  const dup = storage.findDuplicatePendingQuestion(ctx.from.id, text);
+  const dup = await storage.findDuplicatePendingQuestion(ctx.from.id, text);
   if (dup) return ctx.reply('⚠️ ይህን ጥያቄ አስቀድመው ልከዋል። ምላሹን እባክዎ ይጠብቁ።');
 
   // Feature #1: rate limiting
@@ -510,10 +505,10 @@ bot.on('text', async (ctx) => {
     return ctx.reply('⏳ እባክዎ ጥቂት ቆይተው እንደገና ይሞክሩ። በ2 ደቂቃ ውስጥ አንድ ጥያቄ ብቻ መላክ ይቻላል።');
   }
 
-  const ownerChatId = resolveOwnerChatId();
+  const ownerChatId = await resolveOwnerChatId();
   if (!ownerChatId) return ctx.reply('⚠️ ጥያቄዎ አልተላከም። ባለቤቱ ቦቱን ገና አልጀመሩም።');
 
-  const questionId = storage.recordQuestion({
+  const questionId = await storage.recordQuestion({
     userChatId: ctx.chat.id, userId: ctx.from.id,
     username: ctx.from.username, firstName: ctx.from.first_name, lastName: ctx.from.last_name,
     questionText: text, ownerMessageId: null, category: cat,
@@ -532,8 +527,8 @@ bot.on('text', async (ctx) => {
 
   try {
     // Build recipient list (owner + admins + reps for category), deduplicated
-    const adminChatIds = storage.getAdminChatIds(); // type='admin', no role filter
-    const repChatIds   = storage.getRepChatIds(cat);
+    const adminChatIds = await storage.getAdminChatIds(); // type='admin', no role filter
+    const repChatIds   = await storage.getRepChatIds(cat);
     const recipientSet = new Set([ownerChatId, ...adminChatIds, ...repChatIds].filter(id => id != null));
     const recipients = Array.from(recipientSet);
 
@@ -548,7 +543,7 @@ bot.on('text', async (ctx) => {
         const sent = await ctx.telegram.sendMessage(recipientId, ownerMsg, { reply_markup: replyMarkup });
         allMessageIds.push(sent.message_id);
       }
-      storage.updateOwnerMessageIds({
+      await storage.updateOwnerMessageIds({
         questionId,
         ownerMessageId: allMessageIds[0] ?? null,
         ownerMessageIds: JSON.stringify(allMessageIds),
@@ -577,7 +572,7 @@ bot.on('text', async (ctx) => {
         const sent = await ctx.telegram.sendMessage(recipientId, ownerMsg, { reply_markup: replyMarkup });
         allMessageIds.push(sent.message_id);
       }
-      storage.updateOwnerMessageIds({
+      await storage.updateOwnerMessageIds({
         questionId,
         ownerMessageId: allMessageIds[0] ?? null,
         ownerMessageIds: JSON.stringify(allMessageIds),
@@ -607,9 +602,9 @@ bot.catch((err, ctx) => {
 bot.action(/^reply_bot_(\d+)$/, async (ctx) => {
   try { await ctx.answerCbQuery(); } catch (_) {}
   const questionId = Number(ctx.match[1]);
-  const question = storage.getQuestionById(questionId);
+  const question = await storage.getQuestionById(questionId);
   if (!question) return ctx.reply('⚠️ ጥያቄው አልተገኘም።');
-  if (!isOwner(ctx) && !isAdminForRole(ctx, question.category, storage.db)) return;
+  if (!isOwner(ctx) && !await isAdminForRole(ctx, question.category, storage.db)) return;
   if (question.status !== 'pending') return ctx.reply('ℹ️ ይህ ጥያቄ አስቀድሞ ተመልሷል።');
   ownerReplyState.set(ctx.chat.id, { questionId: question.id });
   try { await ctx.editMessageReplyMarkup({ inline_keyboard: [] }); } catch (_) {}
@@ -618,11 +613,11 @@ bot.action(/^reply_bot_(\d+)$/, async (ctx) => {
 
 bot.action(/^answered_assembly_(\d+)$/, async (ctx) => {
   try { await ctx.answerCbQuery(); } catch (_) {}
-  const question = storage.getQuestionById(Number(ctx.match[1]));
+  const question = await storage.getQuestionById(Number(ctx.match[1]));
   if (!question) return ctx.reply('⚠️ ጥያቄው አልተገኘም።');
-  if (!isOwner(ctx) && !isAdminForRole(ctx, question.category, storage.db)) return;
+  if (!isOwner(ctx) && !await isAdminForRole(ctx, question.category, storage.db)) return;
   if (question.status !== 'pending') return ctx.reply('ℹ️ ይህ ጥያቄ አስቀድሞ ተመልሷል።');
-  storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_assembly' });
+  await storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_assembly' });
   try {
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
     await ctx.telegram.sendMessage(question.user_chat_id,
@@ -637,11 +632,11 @@ bot.action(/^answered_assembly_(\d+)$/, async (ctx) => {
 
 bot.action(/^answered_sunday_(\d+)$/, async (ctx) => {
   try { await ctx.answerCbQuery(); } catch (_) {}
-  const question = storage.getQuestionById(Number(ctx.match[1]));
+  const question = await storage.getQuestionById(Number(ctx.match[1]));
   if (!question) return ctx.reply('⚠️ ጥያቄው አልተገኘም።');
-  if (!isOwner(ctx) && !isAdminForRole(ctx, question.category, storage.db)) return;
+  if (!isOwner(ctx) && !await isAdminForRole(ctx, question.category, storage.db)) return;
   if (question.status !== 'pending') return ctx.reply('ℹ️ ይህ ጥያቄ አስቀድሞ ተመልሷል።');
-  storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_sunday' });
+  await storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_sunday' });
   try {
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
     await ctx.telegram.sendMessage(question.user_chat_id,
@@ -656,11 +651,11 @@ bot.action(/^answered_sunday_(\d+)$/, async (ctx) => {
 
 bot.action(/^answered_tuesday_(\d+)$/, async (ctx) => {
   try { await ctx.answerCbQuery(); } catch (_) {}
-  const question = storage.getQuestionById(Number(ctx.match[1]));
+  const question = await storage.getQuestionById(Number(ctx.match[1]));
   if (!question) return ctx.reply('⚠️ ጥያቄው አልተገኘም።');
-  if (!isOwner(ctx) && !isAdminForRole(ctx, question.category, storage.db)) return;
+  if (!isOwner(ctx) && !await isAdminForRole(ctx, question.category, storage.db)) return;
   if (question.status !== 'pending') return ctx.reply('ℹ️ ይህ ጥያቄ አስቀድሞ ተመልሷል።');
-  storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_tuesday' });
+  await storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_tuesday' });
   try {
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
     await ctx.telegram.sendMessage(question.user_chat_id,
@@ -737,7 +732,7 @@ async function registerBotCommands() {
   }
 
   // Set rep commands for all reps with a known chat_id
-  const reps = storage.getReps();
+  const reps = await storage.getReps();
   for (const rep of reps) {
     if (!rep.chat_id) continue;
     try {
@@ -749,7 +744,7 @@ async function registerBotCommands() {
   }
 
   // Set admin commands for all admins with a known chat_id
-  const admins = storage.getAdmins();
+  const admins = await storage.getAdmins();
   for (const admin of admins) {
     if (!admin.chat_id) continue;
     try {
@@ -762,7 +757,14 @@ async function registerBotCommands() {
 }
 
 // ── Launch ────────────────────────────────────────────────────────────────────
-bot.launch()
+storage.initDb()
+  .then(async () => {
+    // Seed first rep after DB is ready
+    try {
+      await storage.addRep({ username: 'ctc_1559_26', role: 'literature', addedBy: 5586249161 });
+    } catch (_) {}
+    return bot.launch();
+  })
   .then(async () => {
     console.log('✅ Bot launched');
 

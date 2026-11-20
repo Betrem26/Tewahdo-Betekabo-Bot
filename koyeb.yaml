@@ -1,0 +1,23 @@
+name: tewahdo-betekabo-bot
+services:
+  - name: bot
+    type: worker
+    git:
+      repository: github.com/Betrem26/Tewahdo-Betekabo-Bot
+      branch: master
+    build:
+      buildpack: nodejs
+    run:
+      command: node src/bot.js
+    env:
+      - key: BOT_TOKEN
+        secret: true
+      - key: TURSO_DATABASE_URL
+        secret: true
+      - key: TURSO_AUTH_TOKEN
+        secret: true
+      - key: OWNER_USERNAME
+        value: Jph2126
+      - key: OWNER_CHAT_ID
+        value: "5586249161"
+    health_checks: []

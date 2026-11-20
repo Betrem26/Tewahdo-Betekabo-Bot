@@ -24,27 +24,29 @@ function isOwner(ctx) {
   return false;
 }
 
-function isAdminUser(ctx, db) {
+async function isAdminUser(ctx, db) {
   if (isOwner(ctx)) return true;
   if (!ctx || !ctx.from) return false;
   const username = normalizeUsername(ctx.from.username);
   const chatId = ctx.from.id;
-  const rows = db.prepare(
-    `SELECT * FROM admins WHERE type = 'admin' AND (username = ? OR chat_id = ?)`
-  ).all(username || '', chatId);
-  return rows.length > 0;
+  const result = await db.execute({
+    sql: `SELECT * FROM admins WHERE type = 'admin' AND (username = ? OR chat_id = ?)`,
+    args: [username || '', chatId],
+  });
+  return result.rows.length > 0;
 }
 
-function isRepForRole(ctx, role, db) {
+async function isRepForRole(ctx, role, db) {
   if (isOwner(ctx)) return true;
-  if (isAdminUser(ctx, db)) return true;
+  if (await isAdminUser(ctx, db)) return true;
   if (!ctx || !ctx.from) return false;
   const username = normalizeUsername(ctx.from.username);
   const chatId = ctx.from.id;
-  const rows = db.prepare(
-    `SELECT * FROM admins WHERE type = 'rep' AND (role = ? OR role = 'both') AND (username = ? OR chat_id = ?)`
-  ).all(role, username || '', chatId);
-  return rows.length > 0;
+  const result = await db.execute({
+    sql: `SELECT * FROM admins WHERE type = 'rep' AND (role = ? OR role = 'both') AND (username = ? OR chat_id = ?)`,
+    args: [role, username || '', chatId],
+  });
+  return result.rows.length > 0;
 }
 
 // Keep isAdminForRole as an alias for backward compat
