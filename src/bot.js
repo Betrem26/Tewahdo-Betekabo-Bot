@@ -105,13 +105,22 @@ bot.start(async (ctx) => {
       return ctx.reply(MSG_OWNER_WELCOME, KB_OWNER);
     }
     const catLabel = staffRow.role === 'theology' ? '📖 ነገረ ሃይማኖት' : '📚 ትምሕርታዊ ስነጽሑፍ';
-    return ctx.reply(
-      `✅ እንኳን ወደ ተዋሕዶ በተዓቅቦ ቦት ተወካይ ፓናል ተቀበሉ!\n\n` +
-      `የእርስዎ ምድብ: ${catLabel}\n\n` +
-      `ያሉት ትዕዛዞች፡\n` +
-      `  /pending — ያልተመለሱ ጥያቄዎች\n` +
-      `  /cancel  — መልስ መጻፍ ሰርዝ`,
-      Markup.keyboard([['/pending', '/cancel']]).resize()
+    const repWelcome = staffRow.role === 'literature'
+      ? '✝️ እንኳን ወደ ተዋሕዶ በተዓቅቦ በደህና መጡ!\n\n' +
+        'እርስዎ በዚህ ቦት ላይ የትምህርት ክፍል ትምሕርታዊ ስነ ጽሑፍ ተወካይ ሆነው ተሹመዋል።\n\n' +
+        'በመሆኑም በትምህርታዊ ስነ ጽሑፍ በኩል የሚመጡ ጥያቄዎች ለእርስዎ የሚደርሱ ስለሆነ እንዲያስተናግዱ ስንል እናሳስባለን።\n\n' +
+        'ያሉት ትዕዛዞች፡\n' +
+        '  /pending      — ያልተመለሱ ጥያቄዎች\n' +
+        '  /broadcast    — ለትምሕርታዊ ስነጽሑፍ ተጠቃሚዎች መልዕክት ላክ\n' +
+        '  /cancel       — መልስ መጻፍ ሰርዝ'
+      : '✝️ እንኳን ወደ ተዋሕዶ በተዓቅቦ በደህና መጡ!\n\n' +
+        'እርስዎ የነገረ ሃይማኖት ተወካይ ሆነው ተሹመዋል።\n\n' +
+        'ያሉት ትዕዛዞች፡\n' +
+        '  /pending      — ያልተመለሱ ጥያቄዎች\n' +
+        '  /broadcast    — ለነገረ ሃይማኖት ተጠቃሚዎች መልዕክት ላክ\n' +
+        '  /cancel       — መልስ መጻፍ ሰርዝ';
+    return ctx.reply(repWelcome,
+      Markup.keyboard([['/pending', '/broadcast'], ['/cancel']]).resize()
     );
   }
 
@@ -181,8 +190,30 @@ bot.command('stats', async (ctx) => {
 
 // ── /broadcast ────────────────────────────────────────────────────────────────
 bot.command('broadcast', async (ctx) => {
-  if (!isOwner(ctx) && !isAdminUser(ctx, storage.db)) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+  const isAdmin = isOwner(ctx) || isAdminUser(ctx, storage.db);
+  const normalised = (ctx.from.username || '').replace(/^@/, '').toLowerCase();
+  const repRow = storage.getReps().find(r => r.username === normalised || r.chat_id === ctx.from.id);
+
+  if (!isAdmin && !repRow) return ctx.reply('⛔ ፈቃድ የለዎትም።');
+
   const body = (ctx.message.text || '').replace(/^\/broadcast\s*/, '').trim();
+
+  // Rep broadcast — scoped to their category's users
+  if (!isAdmin && repRow) {
+    if (!body) return ctx.reply('⚠️ አጠቃቀም: /broadcast <መልዕክት>\nምሳሌ: /broadcast ዛሬ ትምህርት አለ!');
+    const chatIds = storage.getUserChatIdsByCategory(repRow.role);
+    if (!chatIds.length) return ctx.reply('📭 ምንም ተጠቃሚ የለም።');
+    const catLabel = repRow.role === 'theology' ? 'ነገረ ሃይማኖት' : 'ትምሕርታዊ ስነጽሑፍ';
+    const msgText = `📢 ከተዋሕዶ በተዓቅቦ ${catLabel} ክፍል ማስታወቂያ፡\n\n${body}`;
+    let sent = 0, failed = 0;
+    for (const chatId of chatIds) {
+      try { await ctx.telegram.sendMessage(chatId, msgText); sent++; }
+      catch (_) { failed++; }
+    }
+    return ctx.reply(`✅ ማስታወቂያ ተልኳል።\n✔ ደርሷቸዋል: ${sent}\n✘ አልደረሰም: ${failed}`);
+  }
+
+  // Owner/admin broadcast — all users
   if (!body) return ctx.reply('⚠️ አጠቃቀም: /broadcast <መልዕክት>\nምሳሌ: /broadcast ዛሬ ጉባኤ አለ!');
   const chatIds = storage.getUniqueUserChatIds();
   if (!chatIds.length) return ctx.reply('📭 ምንም ተጠቃሚ የለም።');
@@ -621,10 +652,11 @@ async function registerBotCommands() {
 
   // Rep commands: /pending (own category) + /cancel + /help
   const repCommands = [
-    { command: 'start',   description: 'ቦቱን ጀምር' },
-    { command: 'pending', description: 'ያልተመለሱ ጥያቄዎች' },
-    { command: 'cancel',  description: 'መልስ መጻፍ ሰርዝ' },
-    { command: 'help',    description: 'ትዕዛዞች ዝርዝር' },
+    { command: 'start',     description: 'ቦቱን ጀምር' },
+    { command: 'pending',   description: 'ያልተመለሱ ጥያቄዎች' },
+    { command: 'broadcast', description: 'ለተጠቃሚዎች መልዕክት ላክ' },
+    { command: 'cancel',    description: 'መልስ መጻፍ ሰርዝ' },
+    { command: 'help',      description: 'ትዕዛዞች ዝርዝር' },
   ];
 
   // Admin commands: everything except owner management commands

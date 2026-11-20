@@ -182,6 +182,11 @@ function getUniqueUserChatIds() {
   return db.prepare(`SELECT DISTINCT chat_id FROM users`).all().map(r => r.chat_id);
 }
 
+function getUserChatIdsByCategory(category) {
+  return db.prepare(`SELECT DISTINCT user_chat_id FROM questions WHERE category = ?`)
+    .all(category).map(r => r.user_chat_id);
+}
+
 // Feature #4: persist category in DB
 function setUserCategory(chatId, category) {
   db.prepare('UPDATE users SET current_category = ? WHERE chat_id = ?').run(category, chatId);
@@ -314,6 +319,7 @@ module.exports = {
   getStats,
   getStatsByCategory,
   getUniqueUserChatIds,
+  getUserChatIdsByCategory,
   setUserCategory,
   getUserCategory,
   findDuplicatePendingQuestion,
