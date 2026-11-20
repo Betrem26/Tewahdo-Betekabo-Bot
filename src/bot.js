@@ -167,18 +167,16 @@ bot.command('pending', async (ctx) => {
     const user    = q.username ? `@${q.username}` : (q.first_name || `ID:${q.user_id}`);
     const catIcon = q.category === 'literature' ? '📚' : '📖';
     const msgText = `${catIcon} [#${q.id}] ${user}\n📅 ${q.created_at}\n💬 ${q.question_text}`;
-    const buttons = [
-      [
-        Markup.button.callback('✅ በቦት መልስ',       `reply_bot_${q.id}`),
-        Markup.button.callback('📢 በጉባኤ ይመለሳል',   `answered_assembly_${q.id}`),
-        Markup.button.callback('🗓️ እሑድ ይመለሳል',    `answered_sunday_${q.id}`),
-      ],
-    ];
-    if (q.category === 'literature') {
-      buttons.push([
-        Markup.button.callback('🗓️ ማክሰኞ ይመለሳል', `answered_tuesday_${q.id}`),
-      ]);
-    }
+    const buttons = q.category === 'literature'
+      ? [[
+          Markup.button.callback('✅ በቦት መልስ',      `reply_bot_${q.id}`),
+          Markup.button.callback('�️ ማክሰኞ ይመለሳል', `answered_tuesday_${q.id}`),
+        ]]
+      : [[
+          Markup.button.callback('✅ በቦት መልስ',     `reply_bot_${q.id}`),
+          Markup.button.callback('📢 በጉባኤ ይመለሳል', `answered_assembly_${q.id}`),
+          Markup.button.callback('🗓️ እሑድ ይመለሳል',  `answered_sunday_${q.id}`),
+        ]];
     await ctx.reply(msgText, Markup.inlineKeyboard(buttons));
   }
 });
@@ -570,11 +568,7 @@ bot.on('text', async (ctx) => {
     } else {
       const replyMarkup = Markup.inlineKeyboard([
         [
-          Markup.button.callback('✅ በቦት መልስ',     `reply_bot_${questionId}`),
-          Markup.button.callback('📢 በጉባኤ ይመለሳል', `answered_assembly_${questionId}`),
-        ],
-        [
-          Markup.button.callback('🗓️ እሑድ ይመለሳል',  `answered_sunday_${questionId}`),
+          Markup.button.callback('✅ በቦት መልስ',      `reply_bot_${questionId}`),
           Markup.button.callback('🗓️ ማክሰኞ ይመለሳል', `answered_tuesday_${questionId}`),
         ],
       ]).reply_markup;
