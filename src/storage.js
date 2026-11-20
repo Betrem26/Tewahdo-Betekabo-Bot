@@ -59,8 +59,11 @@ async function initDb() {
   try { await client.execute(`ALTER TABLE questions ADD COLUMN owner_message_ids TEXT`); } catch (_) {}
   try {
     await client.execute(`ALTER TABLE admins ADD COLUMN type TEXT NOT NULL DEFAULT 'rep' CHECK(type IN ('admin','rep'))`);
-  } catch (_) {}
-  try { await client.execute(`UPDATE admins SET type = 'admin' WHERE type = 'rep'`); } catch (_) {}
+    // Only backfill on a fresh migration — rows that existed before this column were old-style admins
+    await client.execute(`UPDATE admins SET type = 'admin' WHERE type = 'rep'`);
+  } catch (_) {
+    // Column already exists — skip backfill entirely
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
