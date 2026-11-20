@@ -1,0 +1,22 @@
+services:
+  - type: worker
+    name: tewahdo-betekabo-bot
+    runtime: node
+    repo: https://github.com/Betrem26/Tewahdo-Betekabo-Bot
+    branch: master
+    buildCommand: npm install
+    startCommand: node src/bot.js
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: OWNER_USERNAME
+        value: Jph2126
+      - key: OWNER_CHAT_ID
+        value: "5586249161"
+      - key: NODE_ENV
+        value: production
