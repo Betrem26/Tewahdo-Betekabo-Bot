@@ -780,18 +780,10 @@ storage.initDb()
         '📚 ለትምሕርታዊ ስነ ጽሑፍ ጥያቄዎች\n' +
         '   • ምላሽ የሚሰጠው ዘወትር ማክሰኞ 11 ሰዓት በሚካሄደው\n' +
         '     የትምህርት ክፍል ትምህርታዊ ስነ ጽሑፍ መርሐ ግብር ላይ ይሆናል።\n\n' +
-        'ይሄንን አገልግሎት ለማግኘት ከታች ያለውን Start የሚለውን ይጫኑ።',
-        { language_code: 'am' }
-      );
-      await bot.telegram.setMyDescription(
-        'Welcome to Tewahdo Betekabo Bot 🙏\n\n' +
-        'Ask theology or literature questions and get answers through our programs.\n\n' +
-        'Press Start to begin.',
-        { language_code: 'en' }
+        'ይሄንን አገልግሎት ለማግኘት ከታች ያለውን Start የሚለውን ይጫኑ።'
       );
       await bot.telegram.setMyShortDescription(
-        'ጥያቄዎን ይጠይቁ — ምላሹ በጉባኤ ወይም በቦት ይደርስዎታል።',
-        { language_code: 'am' }
+        'ጥያቄዎን ይጠይቁ — ምላሹ በጉባኤ ወይም በቦት ይደርስዎታል። 🙏'
       );
     } catch (e) {
       console.error('setMyDescription failed:', e.message);
