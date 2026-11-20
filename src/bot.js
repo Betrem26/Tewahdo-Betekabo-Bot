@@ -631,7 +631,12 @@ bot.action(/^answered_assembly_(\d+)$/, async (ctx) => {
   storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_assembly' });
   try {
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    await ctx.telegram.sendMessage(question.user_chat_id, '📢 ጥያቄዎ በጉባኤ ይመለሳል። ጉባኤ በሚዘጋጅበት ጊዜ ይከታተሉ።');
+    await ctx.telegram.sendMessage(question.user_chat_id,
+      '✝️ ጥያቄዎ ደርሷል።\n\n' +
+      'የጠየቁት ጥያቄ በግቢ ጉባኤው በሚዘጋጅ ልዩ መርሐ ግብር ላይ ይመለሳል።\n\n' +
+      'ጉባኤውን ይከታተሉ ዘንድ በእግዚአብሔር ስም እናሳስባለን።\n\n' +
+      'እግዚአብሔር ኢትዮጵያን እና ሕዝቦቿን ይባርክ 🙏'
+    );
   } catch (e) { console.error('Could not notify user:', e.message); }
   return ctx.reply('✅ ምልክት ተደርጓል — በጉባኤ ይመለሳል።');
 });
@@ -645,7 +650,12 @@ bot.action(/^answered_sunday_(\d+)$/, async (ctx) => {
   storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_sunday' });
   try {
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    await ctx.telegram.sendMessage(question.user_chat_id, '🗓️ ጥያቄዎ ዘወትር እሑድ በሚካሄደው የተዋሕዶ በተዓቅቦ መርሐ ግብር ላይ ይመለሳል። እሑድ እሑድ ይከታተሉ!');
+    await ctx.telegram.sendMessage(question.user_chat_id,
+      '✝️ ጥያቄዎ ደርሷል።\n\n' +
+      'የጠየቁት ጥያቄ እሑድ 4፡00 ሰዓት በሚካሄደው የተዋሕዶ በተዓቅቦ መርሐ ግብር ላይ ይመለሳል።\n\n' +
+      'ጉባኤውን ይከታተሉ ዘንድ በእግዚአብሔር ስም እናሳስባለን።\n\n' +
+      'እግዚአብሔር ኢትዮጵያን እና ሕዝቦቿን ይባርክ 🙏'
+    );
   } catch (e) { console.error('Could not notify user:', e.message); }
   return ctx.reply('✅ ምልክት ተደርጓል — እሑድ ይመለሳል።');
 });
@@ -659,7 +669,13 @@ bot.action(/^answered_tuesday_(\d+)$/, async (ctx) => {
   storage.updateQuestionStatusById({ questionId: question.id, status: 'answered_tuesday' });
   try {
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    await ctx.telegram.sendMessage(question.user_chat_id, '🗓️ ጥያቄዎ ዘወትር ማክሰኞ 11 ሰዓት በሚካሄደው የትምሕርት ክፍል ትምሕርታዊ ስነ ጽሑፍ መርሐ ግብር ላይ ይመለሳል።');
+    await ctx.telegram.sendMessage(question.user_chat_id,
+      '✝️ ጥያቄዎ ደርሷል።\n\n' +
+      'የጠየቁት ጥያቄ ዘወትር ማክሰኞ 11 ሰዓት በሚካሄደው\n' +
+      'የትምህርት ክፍል ትምህርታዊ ስነ ጽሑፍ መርሐ ግብር ላይ ይመለሳል።\n\n' +
+      'መርሐ ግብሩን ይከታተሉ ዘንድ በእግዚአብሔር ስም እናሳስባለን።\n\n' +
+      'እግዚአብሔር ኢትዮጵያን እና ሕዝቦቿን ይባርክ 🙏'
+    );
   } catch (e) { console.error('Could not notify user:', e.message); }
   return ctx.reply('✅ ምልክት ተደርጓል — ማክሰኞ ይመለሳል።');
 });
