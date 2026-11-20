@@ -36,7 +36,15 @@ const KB_OWNER      = Markup.keyboard([
 
 // ── Static messages ──────────────────────────────────────────────────────────
 const MSG_CATEGORY_PICK =
-  '✝️ እንኳን ወደ ተዋሕዶ በተዓቅቦ የጥያቄ መጠየቂያ ቦት በደህና መጡ!\n\n' +
+  'እንኳን ወደ ተዋሕዶ በተዓቅቦ የቴሌግራም ቦት በደህና መጡ 🙏\n\n' +
+  'በዚህ ቦት የሚያገኙት አገልግሎት፡\n\n' +
+  '📖 ለነገረ ሃይማኖት ጥያቄዎች\n' +
+  '   • የሚጠይቁት ጥያቄ ምላሽ በጉባኤ፣ በእሑድ መርሐ ግብር\n' +
+  '     ወይም በቀጥታ በቦት በኩል ይሰጣል።\n\n' +
+  '📚 ለትምሕርታዊ ስነ ጽሑፍ ጥያቄዎች\n' +
+  '   • ምላሽ ዘወትር ማክሰኞ 11 ሰዓት በሚካሄደው\n' +
+  '     የትምህርት ክፍል መርሐ ግብር ላይ ይሰጣል።\n\n' +
+  '━━━━━━━━━━━━━━━━━━━━\n' +
   '👇 የጥያቄዎን ምድብ ይምረጡ፡';
 
 const MSG_THEOLOGY_WELCOME =
@@ -728,8 +736,37 @@ async function registerBotCommands() {
 
 // ── Launch ────────────────────────────────────────────────────────────────────
 bot.launch()
-  .then(() => {
+  .then(async () => {
     console.log('✅ Bot launched');
+
+    // Set bot description shown to new users before they press Start
+    try {
+      await bot.telegram.setMyDescription(
+        'እንኳን ወደ ተዋሕዶ በተዓቅቦ የቴሌግራም ቦት በደህና መጡ 🙏\n\n' +
+        'በዚህ ቦት የሚያገኙት አገልግሎት፡\n\n' +
+        '📖 ለነገረ ሃይማኖት ጥያቄዎች\n' +
+        '   • የሚጠይቁት ጥያቄ ምላሽ በጉባኤ፣ በእሑድ መርሐ ግብር\n' +
+        '     ወይም በቀጥታ በቦት በኩል ይሰጣል።\n\n' +
+        '📚 ለትምሕርታዊ ስነ ጽሑፍ ጥያቄዎች\n' +
+        '   • ምላሽ ዘወትር ማክሰኞ 11 ሰዓት በሚካሄደው\n' +
+        '     የትምህርት ክፍል መርሐ ግብር ላይ ይሰጣል።\n\n' +
+        'ይሄንን አገልግሎት ለማግኘት ከታች ያለውን Start የሚለውን ይጫኑ።',
+        { language_code: 'am' }
+      );
+      await bot.telegram.setMyDescription(
+        'Welcome to Tewahdo Betekabo Bot 🙏\n\n' +
+        'Ask theology or literature questions and get answers through our programs.\n\n' +
+        'Press Start to begin.',
+        { language_code: 'en' }
+      );
+      await bot.telegram.setMyShortDescription(
+        'ጥያቄዎን ይጠይቁ — ምላሹ በጉባኤ ወይም በቦት ይደርስዎታል።',
+        { language_code: 'am' }
+      );
+    } catch (e) {
+      console.error('setMyDescription failed:', e.message);
+    }
+
     registerBotCommands().catch(console.error);
   })
   .catch((err) => {
