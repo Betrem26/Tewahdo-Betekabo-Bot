@@ -88,7 +88,33 @@ bot.start(async (ctx) => {
     userId: ctx.from.id, chatId: ctx.chat.id,
     username: ctx.from.username, firstName: ctx.from.first_name, lastName: ctx.from.last_name,
   });
+
+  // If this user is a rep or admin, refresh their command list immediately
+  const allStaff = storage.getAllStaff();
+  const normalised = (ctx.from.username || '').replace(/^@/, '').toLowerCase();
+  const staffRow = allStaff.find(s => s.username === normalised || s.chat_id === ctx.from.id);
+  if (staffRow) {
+    registerBotCommands().catch(console.error);
+  }
+
   if (isOwner(ctx)) return ctx.reply(MSG_OWNER_WELCOME, KB_OWNER);
+
+  // Rep/admin welcome
+  if (staffRow) {
+    if (staffRow.type === 'admin') {
+      return ctx.reply(MSG_OWNER_WELCOME, KB_OWNER);
+    }
+    const catLabel = staffRow.role === 'theology' ? '📖 ነገረ ሃይማኖት' : '📚 ትምሕርታዊ ስነጽሑፍ';
+    return ctx.reply(
+      `✅ እንኳን ወደ ተዋሕዶ በተዓቅቦ ቦት ተወካይ ፓናል ተቀበሉ!\n\n` +
+      `የእርስዎ ምድብ: ${catLabel}\n\n` +
+      `ያሉት ትዕዛዞች፡\n` +
+      `  /pending — ያልተመለሱ ጥያቄዎች\n` +
+      `  /cancel  — መልስ መጻፍ ሰርዝ`,
+      Markup.keyboard([['/pending', '/cancel']]).resize()
+    );
+  }
+
   userCategory.delete(ctx.chat.id);
   return ctx.reply(MSG_CATEGORY_PICK, KB_CATEGORY);
 });
@@ -584,10 +610,36 @@ bot.action(/^answered_tuesday_(\d+)$/, async (ctx) => {
 
 // ── Register commands ─────────────────────────────────────────────────────────
 async function registerBotCommands() {
+  // Default: regular users see only /start and /help
   await bot.telegram.setMyCommands(
-    [{ command: 'start', description: 'ቦቱን ጀምር' }],
+    [
+      { command: 'start', description: 'ቦቱን ጀምር' },
+      { command: 'help',  description: 'እርዳታ' },
+    ],
     { scope: { type: 'default' } }
   );
+
+  // Rep commands: /pending (own category) + /cancel + /help
+  const repCommands = [
+    { command: 'start',   description: 'ቦቱን ጀምር' },
+    { command: 'pending', description: 'ያልተመለሱ ጥያቄዎች' },
+    { command: 'cancel',  description: 'መልስ መጻፍ ሰርዝ' },
+    { command: 'help',    description: 'ትዕዛዞች ዝርዝር' },
+  ];
+
+  // Admin commands: everything except owner management commands
+  const adminCommands = [
+    { command: 'start',    description: 'ቦቱን ጀምር' },
+    { command: 'pending',  description: 'ያልተመለሱ ጥያቄዎች' },
+    { command: 'stats',    description: 'ስታቲስቲክስ' },
+    { command: 'broadcast',description: 'ማስታወቂያ ላክ' },
+    { command: 'reply',    description: 'ለተወሰነ ጥያቄ መልስ ላክ' },
+    { command: 'export',   description: 'ሁሉም ጥያቄዎች ፋይል' },
+    { command: 'cancel',   description: 'መልስ መጻፍ ሰርዝ' },
+    { command: 'help',     description: 'ትዕዛዞች ዝርዝር' },
+  ];
+
+  // Owner commands: full access
   const ownerCommands = [
     { command: 'start',        description: 'ቦቱን ጀምር' },
     { command: 'pending',      description: 'ያልተመለሱ ጥያቄዎች' },
@@ -599,11 +651,13 @@ async function registerBotCommands() {
     { command: 'removerep',    description: 'ተወካይ አስወግድ' },
     { command: 'removeadmin',  description: 'አስተዳዳሪ አስወግድ' },
     { command: 'broadcast',    description: 'ማስታወቂያ ላክ' },
-    { command: 'cancel',       description: 'መልስ መጻፍ ሰርዝ' },
     { command: 'reply',        description: 'ለተወሰነ ጥያቄ መልስ ላክ' },
-    { command: 'export',       description: 'ሁሉም ጥያቄዎች ፋይል ወደ ሰድ' },
+    { command: 'export',       description: 'ሁሉም ጥያቄዎች ፋይል' },
+    { command: 'cancel',       description: 'መልስ መጻፍ ሰርዝ' },
     { command: 'help',         description: 'ትዕዛዞች ዝርዝር' },
   ];
+
+  // Set owner commands
   const ownerIds = new Set();
   if (OWNER_CHAT_ID) ownerIds.add(OWNER_CHAT_ID);
   for (const chatId of ownerIds) {
@@ -611,7 +665,31 @@ async function registerBotCommands() {
       await bot.telegram.setMyCommands(ownerCommands, { scope: { type: 'chat', chat_id: chatId } });
       console.log(`Owner commands registered for chat_id ${chatId}`);
     } catch (e) {
-      console.error(`setMyCommands failed for ${chatId}:`, e.description || e.message);
+      console.error(`setMyCommands failed for owner ${chatId}:`, e.description || e.message);
+    }
+  }
+
+  // Set rep commands for all reps with a known chat_id
+  const reps = storage.getReps();
+  for (const rep of reps) {
+    if (!rep.chat_id) continue;
+    try {
+      await bot.telegram.setMyCommands(repCommands, { scope: { type: 'chat', chat_id: rep.chat_id } });
+      console.log(`Rep commands registered for @${rep.username} (${rep.chat_id})`);
+    } catch (e) {
+      console.error(`setMyCommands failed for rep ${rep.chat_id}:`, e.description || e.message);
+    }
+  }
+
+  // Set admin commands for all admins with a known chat_id
+  const admins = storage.getAdmins();
+  for (const admin of admins) {
+    if (!admin.chat_id) continue;
+    try {
+      await bot.telegram.setMyCommands(adminCommands, { scope: { type: 'chat', chat_id: admin.chat_id } });
+      console.log(`Admin commands registered for @${admin.username} (${admin.chat_id})`);
+    } catch (e) {
+      console.error(`setMyCommands failed for admin ${admin.chat_id}:`, e.description || e.message);
     }
   }
 }
